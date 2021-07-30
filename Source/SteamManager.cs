@@ -37,25 +37,43 @@ namespace VirtualVoid.Networking.Steam
                 Time.fixedDeltaTime = 1f / tickRate;
                 Debug.Log($"Set physics tickrate to {tickRate} ticks per second ({Time.fixedDeltaTime}s per physics update).");
             }
+
+            foreach (GameObject obj in spawnablePrefabs)
+            {
+                TryRegisterSpawnablePrefab(obj);
+            }
         }
 
         // Inspector Stuff
         [Header("The steam app id of your app.")]
         public uint appId = 480;
 
-        [Header("Disconnects clients if their Application.version is different from the servers.")]
+        [Header("Disconnects clients if their Application.version is different from the server's.")]
         public bool disconnectClientsFromDifferentVersion = true;
 
         [Header("The maximum number of players who can join at once.")]
-        public int maxPlayers = 4;
+        public uint maxPlayers = 4;
 
         [Header("Sets the fixed update rate. Set to 0 to keep as it is.")]
         [Range(0, 128)]
         public int tickRate;
 
+        [Header("All prefabs that can be spawned on the client should be in this list.")]
+        public GameObject[] spawnablePrefabs;
+
         // Static Members
         public static Lobby CurrentLobby { get; private set; }
-        public static SteamId SteamID => SteamClient.SteamId;
+        private static SteamId steamID = 0;
+        public static SteamId SteamID
+        {
+            get
+            {
+                if (steamID == 0)
+                    steamID = SteamClient.SteamId;
+
+                return steamID;
+            }
+        }
 
         public static SteamId ServerID { get; private set; }
         public static bool IsServer => SteamID == ServerID;
@@ -64,35 +82,47 @@ namespace VirtualVoid.Networking.Steam
         //private static SteamSocketConnection currentConnection;
 
         // Events
-        public static event Action<Lobby, bool> OnLobbyCreated; // Server
-        public static event Action<Lobby> OnLobbyJoined; // Both
-        public static event Action<Lobby, Friend> OnLobbyMemberJoined; // Both
-        public static event Action<Lobby> OnLobbyLeft; // Client
-        public static event Action<Lobby, Friend> OnLobbyMemberLeave; // Both
+        //public static event Action OnServerStart;
+        //public static event Action OnServerStop;
+
+        public static event LobbyCreatedCallback OnLobbyCreated; // Server
+        public static event LobbyCallback OnLobbyJoined; // Both
+        public static event LobbyMemberCallback OnLobbyMemberJoined; // Both
+        public static event LobbyCallback OnLobbyLeft; // Both
+        public static event LobbyMemberCallback OnLobbyMemberLeave; // Both
 
         public static event Action<SteamId> OnClientDisconnect; // Both
 
         public static event Action<SteamId> OnClientSceneLoaded; // Server
         public static event Action OnAllClientsSceneLoaded; // Server
 
-        public static event ClientMessageCallback OnMessageFromClient;
-        public static event ServerMessageCallback OnMessageFromServer;
+        public static event ClientMessageReceivedCallback OnMessageFromClient;
+        public static event ServerMessageReceivedCallback OnMessageFromServer;
 
-        internal static event ClientMessageCallback OnInternalMessageFromClient;
-        internal static event ServerMessageCallback OnInternalMessageFromServer;
+        internal static event ClientMessageReceivedCallback OnInternalMessageFromClient;
+        internal static event ServerMessageReceivedCallback OnInternalMessageFromServer;
 
-        // Delegates
-        public delegate void ClientMessageCallback(ushort messageID, SteamId clientSteamID, Message message);
-        public delegate void ServerMessageCallback(ushort messageID, Message message);
+        // Delegates (Really just used so the parameters have names)
+        public delegate void ClientMessageReceivedCallback(ushort messageID, SteamId clientSteamID, Message message);
+        public delegate void ServerMessageReceivedCallback(ushort messageID, Message message);
+
+        public delegate void ClientMessageCallback(SteamId clientSteamID, Message message);
+        public delegate void MessageCallback(Message message);
+
+        public delegate void LobbyMemberCallback(Lobby lobby, Friend member);
+        public delegate void LobbyCallback(Lobby lobby);
+        public delegate void LobbyCreatedCallback(Lobby lobby, bool success);
 
         // Dictionaries
         public static readonly Dictionary<SteamId, ConnectedClient> clients = new Dictionary<SteamId, ConnectedClient>();
 
         private static readonly Dictionary<ushort, ClientMessageCallback> messagesFromClientCallbacks = new Dictionary<ushort, ClientMessageCallback>();
-        private static readonly Dictionary<ushort, ServerMessageCallback> messagesFromServerCallbacks = new Dictionary<ushort, ServerMessageCallback>();
+        private static readonly Dictionary<ushort, MessageCallback> messagesFromServerCallbacks = new Dictionary<ushort, MessageCallback>();
 
         private static readonly Dictionary<ushort, ClientMessageCallback> internalMessagesFromClientCallbacks = new Dictionary<ushort, ClientMessageCallback>();
-        private static readonly Dictionary<ushort, ServerMessageCallback> internalMessagesFromServerCallbacks = new Dictionary<ushort, ServerMessageCallback>();
+        private static readonly Dictionary<ushort, MessageCallback> internalMessagesFromServerCallbacks = new Dictionary<ushort, MessageCallback>();
+
+        internal static readonly Dictionary<Guid, GameObject> registeredPrefabs = new Dictionary<Guid, GameObject>();
 
 
         // Constants
@@ -120,6 +150,11 @@ namespace VirtualVoid.Networking.Steam
                 else
                 {
                     clients[friend.Id] = new ConnectedClient(friend.Id);
+                }
+
+                foreach (NetworkID networkID in NetworkID.networkIDs.Values)
+                {
+                    SpawnObject(networkID, friend.Id);
                 }
             }
 
@@ -234,16 +269,15 @@ namespace VirtualVoid.Networking.Steam
 
         private void OnDisable()
         {
-            LeaveCurrentLobby();
             LeaveServer();
             SteamClient.Shutdown();
         }
         #endregion
 
         #region Lobby
-        public static async Task<bool> CreateLobby(int maxPlayers = 4, SteamLobbyPrivacyMode mode = SteamLobbyPrivacyMode.FRIENDS_ONLY, bool joinable = true)
+        public static async Task<bool> CreateLobby(uint maxPlayers = 4, SteamLobbyPrivacyMode mode = SteamLobbyPrivacyMode.FRIENDS_ONLY, bool joinable = true)
         {
-            Lobby? lobby =  await SteamMatchmaking.CreateLobbyAsync(maxPlayers);
+            Lobby? lobby =  await SteamMatchmaking.CreateLobbyAsync((int)maxPlayers);
             if (lobby.HasValue)
             {
                 CurrentLobby = lobby.Value;
@@ -294,14 +328,20 @@ namespace VirtualVoid.Networking.Steam
 
         private static void LeaveCurrentLobby()
         {
-            CurrentLobby.Leave();
-            OnLobbyLeft?.Invoke(CurrentLobby);
+            if (CurrentLobby.Id != 0)
+            {
+                CurrentLobby.Leave();
+                OnLobbyLeft?.Invoke(CurrentLobby);
+                CurrentLobby = default;
+            }
         }
         #endregion
 
         #region Server
         public static async void HostServer(SteamLobbyPrivacyMode mode = SteamLobbyPrivacyMode.FRIENDS_ONLY, bool joinable = true)
         {
+            LeaveServer();
+
             if (!await CreateLobby(instance.maxPlayers, mode, joinable))
             {
                 Debug.Log("Error starting server: Lobby not created successfully.");
@@ -315,6 +355,7 @@ namespace VirtualVoid.Networking.Steam
         {
             if (!IsServer) return;
 
+            //OnServerStop?.Invoke();
             KickAllClients();
         }
 
@@ -338,6 +379,9 @@ namespace VirtualVoid.Networking.Steam
             clients.Clear();
         }
 
+        /// <summary>
+        /// Leaves the server and the steam lobby. Stops the server if you are the host.
+        /// </summary>
         public static void LeaveServer()
         {
             if (IsServer)
@@ -611,7 +655,7 @@ namespace VirtualVoid.Networking.Steam
                 OnInternalMessageFromServer?.Invoke(id, message);
                 if (internalMessagesFromServerCallbacks.ContainsKey(id))
                 {
-                    internalMessagesFromServerCallbacks[id]?.Invoke(id, message);
+                    internalMessagesFromServerCallbacks[id]?.Invoke(message);
                 }
             }
             else
@@ -619,7 +663,7 @@ namespace VirtualVoid.Networking.Steam
                 OnMessageFromServer?.Invoke(id, message);
                 if (messagesFromServerCallbacks.ContainsKey(id))
                 {
-                    messagesFromServerCallbacks[id]?.Invoke(id, message);
+                    messagesFromServerCallbacks[id]?.Invoke(message);
                 }
             }
         }
@@ -638,7 +682,7 @@ namespace VirtualVoid.Networking.Steam
                 OnInternalMessageFromClient?.Invoke(id, fromClient, message);
                 if (internalMessagesFromClientCallbacks.ContainsKey(id))
                 {
-                    internalMessagesFromClientCallbacks[id]?.Invoke(id, fromClient, message);
+                    internalMessagesFromClientCallbacks[id]?.Invoke(fromClient, message);
                 }
             }
             else
@@ -646,7 +690,7 @@ namespace VirtualVoid.Networking.Steam
                 OnMessageFromClient?.Invoke(id, fromClient, message);
                 if (messagesFromClientCallbacks.ContainsKey(id))
                 {
-                    messagesFromClientCallbacks[id]?.Invoke(id, fromClient, message);
+                    messagesFromClientCallbacks[id]?.Invoke(fromClient, message);
                 }
             }
         }
@@ -680,7 +724,7 @@ namespace VirtualVoid.Networking.Steam
         /// </summary>
         /// <param name="messageID">The message ID that will be listened for.</param>
         /// <param name="callback">The callback to invoke when a message with ID <paramref name="messageID"/> is received.</param>
-        public static void RegisterMessageHandler_FromServer(ushort messageID, ServerMessageCallback callback)
+        public static void RegisterMessageHandler_FromServer(ushort messageID, MessageCallback callback)
         {
             if (Message.IsInternalMessage(messageID))
             {
@@ -721,7 +765,7 @@ namespace VirtualVoid.Networking.Steam
         /// </summary>
         /// <param name="messageID">The message ID that will be listened for.</param>
         /// <param name="callback">The callback to invoke when an internal message with ID <paramref name="messageID"/> is received.</param>
-        public static void RegisterInternalMessageHandler_FromServer(ushort messageID, ServerMessageCallback callback)
+        public static void RegisterInternalMessageHandler_FromServer(ushort messageID, MessageCallback callback)
         {
             if (!Message.IsInternalMessage(messageID))
             {
@@ -751,7 +795,7 @@ namespace VirtualVoid.Networking.Steam
             if (messagesFromClientCallbacks.ContainsKey(messageID)) messagesFromClientCallbacks[messageID] -= callback;
         }
 
-        public static void DeregisterMessageHandler_FromServer(ushort messageID, ServerMessageCallback callback)
+        public static void DeregisterMessageHandler_FromServer(ushort messageID, MessageCallback callback)
         {
             if (Message.IsInternalMessage(messageID))
             {
@@ -775,7 +819,7 @@ namespace VirtualVoid.Networking.Steam
             if (internalMessagesFromClientCallbacks.ContainsKey(messageID)) internalMessagesFromClientCallbacks[messageID] -= callback;
         }
 
-        public static void DeregisterInternalMessageHandler_FromServer(ushort messageID, ServerMessageCallback callback)
+        public static void DeregisterInternalMessageHandler_FromServer(ushort messageID, MessageCallback callback)
         {
             if (!Message.IsInternalMessage(messageID))
             {
@@ -846,11 +890,11 @@ namespace VirtualVoid.Networking.Steam
         {
             clients.Clear();
 
-            messagesFromClientCallbacks.Clear();
-            messagesFromServerCallbacks.Clear();
-
-            internalMessagesFromClientCallbacks.Clear();
-            internalMessagesFromServerCallbacks.Clear();
+            //messagesFromClientCallbacks.Clear();
+            //messagesFromServerCallbacks.Clear();
+            //
+            //internalMessagesFromClientCallbacks.Clear();
+            //internalMessagesFromServerCallbacks.Clear();
 
             CurrentLobby = default;
             ServerID = default;
@@ -867,14 +911,23 @@ namespace VirtualVoid.Networking.Steam
                 return;
             }
 
+            var scene = UnityEngine.SceneManagement.SceneManager.GetSceneByName(sceneName);
+
+            if (!scene.IsValid())
+            {
+                Debug.LogError($"Tried to load scene {sceneName}, but that scene does not exist!");
+            }
+
             foreach (ConnectedClient client in clients.Values)
             {
                 client.sceneLoaded = false;
             }
 
-            UnityEngine.SceneManagement.SceneManager.LoadScene(sceneName);
+            NetworkID.ResetNetIDs();
 
-            InternalServerMessages.SendChangeScene(sceneName);
+            UnityEngine.SceneManagement.SceneManager.LoadScene(scene.buildIndex);
+
+            InternalServerMessages.SendChangeScene(scene.buildIndex);
         }
 
         public static bool AllClientsLoadedInScene()
@@ -917,9 +970,54 @@ namespace VirtualVoid.Networking.Steam
 
         #region Objects
 
-        public static void DestroyObject(NetworkID id)
+        internal static void SpawnObject(NetworkID networkID)
         {
-            id.Destroy();
+            if (!IsServer) return;
+
+            InternalServerMessages.SendNetworkIDSpawn(networkID);
+        }
+
+        internal static void SpawnObject(NetworkID networkID, SteamId onlyTo)
+        {
+            if (!IsServer) return;
+
+            InternalServerMessages.SendNetworkIDSpawn(networkID, onlyTo);
+        }
+
+        internal static void DestroyObject(NetworkID networkID)
+        {
+            // Called in NetworkIDs OnDestroy(), no need to destroy it here, just send the destroy to clients
+            if (!IsServer) return;
+
+            InternalServerMessages.SendNetworkIDDestroy(networkID);
+        }
+
+        public static void TryRegisterSpawnablePrefab(GameObject obj)
+        {
+            if (obj == null)
+            {
+                Debug.LogWarning("Tried to register a spawnable prefab, but the passed GameObject was null!");
+                return;
+            }
+
+            if (!obj.TryGetComponent(out NetworkID networkID))
+            {
+                Debug.LogWarning($"Tried to register a spawnable prefab ({obj.name}), but that object has no NetworkID component!");
+                return;
+            }
+
+            if (networkID.assetID == Guid.Empty)
+            {
+                Debug.LogWarning($"Tried to register a spawnable prefab ({obj.name}), but that object's NetworkID has no assetID! Is it a prefab?");
+                return;
+            }
+
+            if (registeredPrefabs.ContainsKey(networkID.assetID))
+            {
+                Debug.Log($"A passed in prefab ({obj.name}) has the same assetID as a registered prefab ({registeredPrefabs[networkID.assetID].name}). Overwriting...");
+            }
+
+            registeredPrefabs[networkID.assetID] = obj;
         }
 
         #endregion

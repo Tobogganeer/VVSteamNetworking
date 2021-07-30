@@ -19,9 +19,15 @@ public class Testing : MonoBehaviour
         SteamManager.OnLobbyCreated += SteamManager_OnLobbyCreated;
         SteamManager.OnLobbyJoined += SteamManager_OnLobbyJoined;
         SteamManager.OnLobbyLeft += SteamManager_OnLobbyLeft;
+        SteamManager.OnLobbyMemberJoined += SteamManager_OnLobbyMemberJoined;
 
         SteamManager.OnLobbyMemberJoined += OnLobbyMembersChange;
         SteamManager.OnLobbyMemberLeave += OnLobbyMembersChange;
+    }
+
+    private void SteamManager_OnLobbyMemberJoined(Steamworks.Data.Lobby lobby, Steamworks.Friend member)
+    {
+        Debug.Log($"SteamManager_OnLobbyMemberJoined invoked. (Friend: {member.Name})");
     }
 
     private void OnLobbyMembersChange(Steamworks.Data.Lobby arg1, Steamworks.Friend arg2)
@@ -31,7 +37,7 @@ public class Testing : MonoBehaviour
 
     private void SteamManager_OnLobbyCreated(Steamworks.Data.Lobby arg1, bool arg2)
     {
-        Debug.Log("SteamManager_OnLobbyCreated invoked.");
+        Debug.Log("SteamManager_OnLobbyCreated invoked. Success? " + arg2);
     }
 
     private void SteamManager_OnLobbyJoined(Steamworks.Data.Lobby obj)
@@ -69,7 +75,7 @@ public class Testing : MonoBehaviour
 
     private void UpdateMemberText()
     {
-        System.Text.StringBuilder builder = new System.Text.StringBuilder("Friends:");
+        System.Text.StringBuilder builder = new System.Text.StringBuilder("Friends:\n");
 
         foreach (var friend in SteamManager.CurrentLobby.Members)
         {

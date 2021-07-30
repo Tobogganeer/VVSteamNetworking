@@ -13,17 +13,10 @@ namespace VirtualVoid.Networking.Steam.LLAPI
         //    return str.Serialize();
         //}
 
-        internal static T DeserializeINetworkMessage<T>(byte[] bytes, ushort bytesOffset) where T : struct, INetworkMessage
+        internal static T DeserializeINetworkMessage<T>(Message message) where T : struct, INetworkMessage
         {
             T str = default;
-            str.Deserialize(new ArraySegment<byte>(bytes, bytesOffset, str.GetSize()));
-            return str;
-        }
-
-        internal static T DeserializeINetworkMessage<T>(ArraySegment<byte> bytesSegment) where T : struct, INetworkMessage
-        {
-            T str = default;
-            str.Deserialize(bytesSegment);
+            str.Deserialize(message);
             return str;
         }
 

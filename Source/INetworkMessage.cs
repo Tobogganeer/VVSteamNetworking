@@ -8,8 +8,9 @@ namespace VirtualVoid.Networking.Steam
 
         void AddToMessage(Message message);
 
-        void Deserialize(ArraySegment<byte> segment);
+        void Deserialize(Message message);
 
-        byte GetSize();
+        byte GetMaxSize();
+        // Maybe change this? https://stackoverflow.com/questions/8173239/c-getting-size-of-a-value-type-variable-at-runtime
     }
 }

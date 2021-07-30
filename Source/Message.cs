@@ -23,15 +23,6 @@ namespace VirtualVoid.Networking.Steam
         /// <summary>The message instance used for handling internal messages.</summary>
         private static readonly Message handleInternal = new Message(MAX_INTERNAL_MESSAGE_SIZE);
 
-        public const byte BOOL_LENGTH = sizeof(bool);
-        public const byte SHORT_LENGTH = sizeof(short);
-        public const byte INT_LENGTH = sizeof(int);
-        public const byte LONG_LENGTH = sizeof(long);
-        public const byte FLOAT_LENGTH = sizeof(float);
-        public const byte DOUBLE_LENGTH = sizeof(double);
-        public const byte VECTOR3_LENGTH = FLOAT_LENGTH * 3;
-        public const byte QUATERNION_LENGTH = FLOAT_LENGTH * 4;
-
         /// <summary>The length in bytes of the data that can be read from the message.</summary>
         public int ReadableLength { get; private set; }
         /// <summary>The length in bytes of the unread data contained in the message.</summary>
@@ -252,7 +243,7 @@ namespace VirtualVoid.Networking.Steam
         /// <returns>The Message instance that the <see langword="bool"/> was added to.</returns>
         public Message Add(bool value)
         {
-            if (UnwrittenLength < BOOL_LENGTH)
+            if (UnwrittenLength < Util.BOOL_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'bool'!");
 
             Bytes[writePos++] = value ? (byte)1 : (byte)0;
@@ -263,7 +254,7 @@ namespace VirtualVoid.Networking.Steam
         /// <returns>The <see langword="bool"/> that was retrieved.</returns>
         public bool GetBool()
         {
-            if (UnreadLength < BOOL_LENGTH)
+            if (UnreadLength < Util.BOOL_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'bool', returning false!");
                 return false;
@@ -306,7 +297,7 @@ namespace VirtualVoid.Networking.Steam
             if (UnreadLength < byteLength)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'bool[]', array will contain default elements!");
-                length = (ushort)(UnreadLength / SHORT_LENGTH);
+                length = (ushort)(UnreadLength / Util.SHORT_LENGTH);
             }
 
             BitArray bits = new BitArray(GetByteArray(byteLength));
@@ -324,7 +315,7 @@ namespace VirtualVoid.Networking.Steam
         /// <returns>The Message instance that the <see langword="short"/> was added to.</returns>
         public Message Add(short value)
         {
-            if (UnwrittenLength < SHORT_LENGTH)
+            if (UnwrittenLength < Util.SHORT_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'short'!");
 
             Write((ushort)value);
@@ -336,7 +327,7 @@ namespace VirtualVoid.Networking.Steam
         /// <returns>The Message instance that the <see langword="ushort"/> was added to.</returns>
         public Message Add(ushort value)
         {
-            if (UnwrittenLength < SHORT_LENGTH)
+            if (UnwrittenLength < Util.SHORT_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'ushort'!");
 
             Write(value);
@@ -355,14 +346,14 @@ namespace VirtualVoid.Networking.Steam
             Bytes[writePos] = (byte)value;
             Bytes[writePos + 1] = (byte)(value >> 8);
 #endif
-            writePos += SHORT_LENGTH;
+            writePos += Util.SHORT_LENGTH;
         }
 
         /// <summary>Retrieves a <see langword="short"/> from the message.</summary>
         /// <returns>The <see langword="short"/> that was retrieved.</returns>
         public short GetShort()
         {
-            if (UnreadLength < SHORT_LENGTH)
+            if (UnreadLength < Util.SHORT_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'short', returning 0!");
                 return 0;
@@ -375,7 +366,7 @@ namespace VirtualVoid.Networking.Steam
         /// <returns>The <see langword="ushort"/> that was retrieved.</returns>
         public ushort GetUShort()
         {
-            if (UnreadLength < SHORT_LENGTH)
+            if (UnreadLength < Util.SHORT_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'ushort', returning 0!");
                 return 0;
@@ -394,14 +385,14 @@ namespace VirtualVoid.Networking.Steam
 #else
             ushort value = (ushort)(Bytes[readPos] | (Bytes[readPos + 1] << 8));
 #endif
-            readPos += SHORT_LENGTH;
+            readPos += Util.SHORT_LENGTH;
             return value;
         }
 
         /// <summary>Retrieves a <see langword="ushort"/> from the message without moving the read position, allowing the same bytes to be read again.</summary>
         internal ushort PeekUShort()
         {
-            if (UnreadLength < SHORT_LENGTH)
+            if (UnreadLength < Util.SHORT_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to peek type 'ushort', returning 0!");
                 return 0;
@@ -423,7 +414,7 @@ namespace VirtualVoid.Networking.Steam
             if (includeLength)
                 Add((ushort)array.Length);
 
-            if (UnwrittenLength < array.Length * SHORT_LENGTH)
+            if (UnwrittenLength < array.Length * Util.SHORT_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'short[]'!");
 
             for (int i = 0; i < array.Length; i++)
@@ -441,7 +432,7 @@ namespace VirtualVoid.Networking.Steam
             if (includeLength)
                 Add((ushort)array.Length);
 
-            if (UnwrittenLength < array.Length * SHORT_LENGTH)
+            if (UnwrittenLength < array.Length * Util.SHORT_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'ushort[]'!");
 
             for (int i = 0; i < array.Length; i++)
@@ -463,10 +454,10 @@ namespace VirtualVoid.Networking.Steam
         {
             short[] array = new short[length];
 
-            if (UnreadLength < length * SHORT_LENGTH)
+            if (UnreadLength < length * Util.SHORT_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'short[]', array will contain default elements!");
-                length = (ushort)(UnreadLength / SHORT_LENGTH);
+                length = (ushort)(UnreadLength / Util.SHORT_LENGTH);
             }
 
             for (int i = 0; i < length; i++)
@@ -488,10 +479,10 @@ namespace VirtualVoid.Networking.Steam
         {
             ushort[] array = new ushort[length];
 
-            if (UnreadLength < length * SHORT_LENGTH)
+            if (UnreadLength < length * Util.SHORT_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'ushort[]', array will contain default elements!");
-                length = (ushort)(UnreadLength / SHORT_LENGTH);
+                length = (ushort)(UnreadLength / Util.SHORT_LENGTH);
             }
 
             for (int i = 0; i < length; i++)
@@ -507,7 +498,7 @@ namespace VirtualVoid.Networking.Steam
         /// <returns>The Message instance that the <see langword="int"/> was added to.</returns>
         public Message Add(int value)
         {
-            if (UnwrittenLength < INT_LENGTH)
+            if (UnwrittenLength < Util.INT_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'int'!");
 
             Write(value);
@@ -519,7 +510,7 @@ namespace VirtualVoid.Networking.Steam
         /// <returns>The Message instance that the <see langword="uint"/> was added to.</returns>
         public Message Add(uint value)
         {
-            if (UnwrittenLength < INT_LENGTH)
+            if (UnwrittenLength < Util.INT_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'uint'!");
 
             Write((int)value);
@@ -542,14 +533,14 @@ namespace VirtualVoid.Networking.Steam
             Bytes[writePos + 2] = (byte)(value >> 16);
             Bytes[writePos + 3] = (byte)(value >> 24);
 #endif
-            writePos += INT_LENGTH;
+            writePos += Util.INT_LENGTH;
         }
 
         /// <summary>Retrieves an <see langword="int"/> from the message.</summary>
         /// <returns>The <see langword="int"/> that was retrieved.</returns>
         public int GetInt()
         {
-            if (UnreadLength < INT_LENGTH)
+            if (UnreadLength < Util.INT_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'int', returning 0!");
                 return 0;
@@ -562,7 +553,7 @@ namespace VirtualVoid.Networking.Steam
         /// <returns>The <see langword="uint"/> that was retrieved.</returns>
         public uint GetUInt()
         {
-            if (UnreadLength < INT_LENGTH)
+            if (UnreadLength < Util.INT_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'uint', returning 0!");
                 return 0;
@@ -581,7 +572,7 @@ namespace VirtualVoid.Networking.Steam
 #else
             int value = Bytes[readPos] | (Bytes[readPos + 1] << 8) | (Bytes[readPos + 2] << 16) | (Bytes[readPos + 3] << 24);
 #endif
-            readPos += INT_LENGTH;
+            readPos += Util.INT_LENGTH;
             return value;
         }
 
@@ -594,7 +585,7 @@ namespace VirtualVoid.Networking.Steam
             if (includeLength)
                 Add((ushort)array.Length);
 
-            if (UnwrittenLength < array.Length * INT_LENGTH)
+            if (UnwrittenLength < array.Length * Util.INT_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'int[]'!");
 
             for (int i = 0; i < array.Length; i++)
@@ -612,7 +603,7 @@ namespace VirtualVoid.Networking.Steam
             if (includeLength)
                 Add((ushort)array.Length);
 
-            if (UnwrittenLength < array.Length * INT_LENGTH)
+            if (UnwrittenLength < array.Length * Util.INT_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'uint[]'!");
 
             for (int i = 0; i < array.Length; i++)
@@ -634,10 +625,10 @@ namespace VirtualVoid.Networking.Steam
         {
             int[] array = new int[length];
 
-            if (UnreadLength < length * INT_LENGTH)
+            if (UnreadLength < length * Util.INT_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'int[]', array will contain default elements!");
-                length = (ushort)(UnreadLength / INT_LENGTH);
+                length = (ushort)(UnreadLength / Util.INT_LENGTH);
             }
 
             for (int i = 0; i < length; i++)
@@ -659,10 +650,10 @@ namespace VirtualVoid.Networking.Steam
         {
             uint[] array = new uint[length];
 
-            if (UnreadLength < length * INT_LENGTH)
+            if (UnreadLength < length * Util.INT_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'uint[]', array will contain default elements!");
-                length = (ushort)(UnreadLength / INT_LENGTH);
+                length = (ushort)(UnreadLength / Util.INT_LENGTH);
             }
 
             for (int i = 0; i < length; i++)
@@ -678,7 +669,7 @@ namespace VirtualVoid.Networking.Steam
         /// <returns>The Message instance that the <see langword="long"/> was added to.</returns>
         public Message Add(long value)
         {
-            if (UnwrittenLength < LONG_LENGTH)
+            if (UnwrittenLength < Util.LONG_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'long'!");
 
             Write(value);
@@ -690,7 +681,7 @@ namespace VirtualVoid.Networking.Steam
         /// <returns>The Message instance that the <see langword="ulong"/> was added to.</returns>
         public Message Add(ulong value)
         {
-            if (UnwrittenLength < LONG_LENGTH)
+            if (UnwrittenLength < Util.LONG_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'ulong'!");
 
             Write((long)value);
@@ -721,14 +712,14 @@ namespace VirtualVoid.Networking.Steam
             Bytes[writePos + 6] = (byte)(value >> 48);
             Bytes[writePos + 7] = (byte)(value >> 56);
 #endif
-            writePos += LONG_LENGTH;
+            writePos += Util.LONG_LENGTH;
         }
 
         /// <summary>Retrieves a <see langword="long"/> from the message.</summary>
         /// <returns>The <see langword="long"/> that was retrieved.</returns>
         public long GetLong()
         {
-            if (UnreadLength < LONG_LENGTH)
+            if (UnreadLength < Util.LONG_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'long', returning 0!");
                 return 0;
@@ -739,7 +730,7 @@ namespace VirtualVoid.Networking.Steam
         Array.Reverse(Bytes, readPos, longLength);
 #endif
             long value = BitConverter.ToInt64(Bytes, readPos);
-            readPos += LONG_LENGTH;
+            readPos += Util.LONG_LENGTH;
             return value;
         }
 
@@ -747,7 +738,7 @@ namespace VirtualVoid.Networking.Steam
         /// <returns>The <see langword="ulong"/> that was retrieved.</returns>
         public ulong GetULong()
         {
-            if (UnreadLength < LONG_LENGTH)
+            if (UnreadLength < Util.LONG_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'ulong', returning 0!");
                 return 0;
@@ -758,7 +749,7 @@ namespace VirtualVoid.Networking.Steam
         Array.Reverse(Bytes, readPos, longLength);
 #endif
             ulong value = BitConverter.ToUInt64(Bytes, readPos);
-            readPos += LONG_LENGTH;
+            readPos += Util.LONG_LENGTH;
             return value;
         }
 
@@ -771,7 +762,7 @@ namespace VirtualVoid.Networking.Steam
             if (includeLength)
                 Add((ushort)array.Length);
 
-            if (UnwrittenLength < array.Length * LONG_LENGTH)
+            if (UnwrittenLength < array.Length * Util.LONG_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'long[]'!");
 
             for (int i = 0; i < array.Length; i++)
@@ -789,7 +780,7 @@ namespace VirtualVoid.Networking.Steam
             if (includeLength)
                 Add((ushort)array.Length);
 
-            if (UnwrittenLength < array.Length * LONG_LENGTH)
+            if (UnwrittenLength < array.Length * Util.LONG_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'ulong[]'!");
 
             for (int i = 0; i < array.Length; i++)
@@ -811,10 +802,10 @@ namespace VirtualVoid.Networking.Steam
         {
             long[] array = new long[length];
 
-            if (UnreadLength < length * LONG_LENGTH)
+            if (UnreadLength < length * Util.LONG_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'long[]', array will contain default elements!");
-                length = (ushort)(UnreadLength / LONG_LENGTH);
+                length = (ushort)(UnreadLength / Util.LONG_LENGTH);
             }
 
             for (int i = 0; i < length; i++)
@@ -836,10 +827,10 @@ namespace VirtualVoid.Networking.Steam
         {
             ulong[] array = new ulong[length];
 
-            if (UnreadLength < length * LONG_LENGTH)
+            if (UnreadLength < length * Util.LONG_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'ulong[]', array will contain default elements!");
-                length = (ushort)(UnreadLength / LONG_LENGTH);
+                length = (ushort)(UnreadLength / Util.LONG_LENGTH);
             }
 
             for (int i = 0; i < length; i++)
@@ -855,7 +846,7 @@ namespace VirtualVoid.Networking.Steam
         /// <returns>The Message instance that the <see langword="float"/> was added to.</returns>
         public Message Add(float value)
         {
-            if (UnwrittenLength < FLOAT_LENGTH)
+            if (UnwrittenLength < Util.FLOAT_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'float'!");
 
             FloatConverter converter = new FloatConverter { floatValue = value };
@@ -870,7 +861,7 @@ namespace VirtualVoid.Networking.Steam
             Bytes[writePos + 2] = converter.byte2;
             Bytes[writePos + 3] = converter.byte3;
 #endif
-            writePos += FLOAT_LENGTH;
+            writePos += Util.FLOAT_LENGTH;
             return this;
         }
 
@@ -878,7 +869,7 @@ namespace VirtualVoid.Networking.Steam
         /// <returns>The <see langword="float"/> that was retrieved.</returns>
         public float GetFloat()
         {
-            if (UnreadLength < FLOAT_LENGTH)
+            if (UnreadLength < Util.FLOAT_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'float', returning 0!");
                 return 0;
@@ -890,7 +881,7 @@ namespace VirtualVoid.Networking.Steam
 #else
             FloatConverter converter = new FloatConverter { byte0 = Bytes[readPos], byte1 = Bytes[readPos + 1], byte2 = Bytes[readPos + 2], byte3 = Bytes[readPos + 3] };
 #endif
-            readPos += FLOAT_LENGTH;
+            readPos += Util.FLOAT_LENGTH;
             return converter.floatValue;
         }
 
@@ -903,7 +894,7 @@ namespace VirtualVoid.Networking.Steam
             if (includeLength)
                 Add((ushort)array.Length);
 
-            if (UnwrittenLength < array.Length * FLOAT_LENGTH)
+            if (UnwrittenLength < array.Length * Util.FLOAT_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'float[]'!");
 
             for (int i = 0; i < array.Length; i++)
@@ -925,10 +916,10 @@ namespace VirtualVoid.Networking.Steam
         {
             float[] array = new float[length];
 
-            if (UnreadLength < length * FLOAT_LENGTH)
+            if (UnreadLength < length * Util.FLOAT_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'float[]', array will contain default elements!");
-                length = (ushort)(UnreadLength / FLOAT_LENGTH);
+                length = (ushort)(UnreadLength / Util.FLOAT_LENGTH);
             }
 
             for (int i = 0; i < length; i++)
@@ -944,7 +935,7 @@ namespace VirtualVoid.Networking.Steam
         /// <returns>The Message instance that the <see langword="double"/> was added to.</returns>
         public Message Add(double value)
         {
-            if (UnwrittenLength < DOUBLE_LENGTH)
+            if (UnwrittenLength < Util.DOUBLE_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'double'!");
 
             DoubleConverter converter = new DoubleConverter { doubleValue = value };
@@ -967,7 +958,7 @@ namespace VirtualVoid.Networking.Steam
             Bytes[writePos + 6] = converter.byte6;
             Bytes[writePos + 7] = converter.byte7;
 #endif
-            writePos += DOUBLE_LENGTH;
+            writePos += Util.DOUBLE_LENGTH;
             return this;
         }
 
@@ -975,7 +966,7 @@ namespace VirtualVoid.Networking.Steam
         /// <returns>The <see langword="double"/> that was retrieved.</returns>
         public double GetDouble()
         {
-            if (UnreadLength < DOUBLE_LENGTH)
+            if (UnreadLength < Util.DOUBLE_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'double', returning 0!");
                 return 0;
@@ -986,7 +977,7 @@ namespace VirtualVoid.Networking.Steam
         Array.Reverse(Bytes, readPos, doubleLength);
 #endif
             double value = BitConverter.ToDouble(Bytes, readPos);
-            readPos += DOUBLE_LENGTH;
+            readPos += Util.DOUBLE_LENGTH;
             return value;
         }
 
@@ -999,7 +990,7 @@ namespace VirtualVoid.Networking.Steam
             if (includeLength)
                 Add((ushort)array.Length);
 
-            if (UnwrittenLength < array.Length * DOUBLE_LENGTH)
+            if (UnwrittenLength < array.Length * Util.DOUBLE_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'double[]'!");
 
             for (int i = 0; i < array.Length; i++)
@@ -1021,10 +1012,10 @@ namespace VirtualVoid.Networking.Steam
         {
             double[] array = new double[length];
 
-            if (UnreadLength < length * DOUBLE_LENGTH)
+            if (UnreadLength < length * Util.DOUBLE_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'double[]', array will contain default elements!");
-                length = (ushort)(UnreadLength / DOUBLE_LENGTH);
+                length = (ushort)(UnreadLength / Util.DOUBLE_LENGTH);
             }
 
             for (int i = 0; i < length; i++)
@@ -1100,11 +1091,79 @@ namespace VirtualVoid.Networking.Steam
         }
         #endregion
 
-        public SteamId GetSteamId()
+        #region Vector2
+        public Message Add(Vector2 value)
         {
-            return GetULong();
+            if (UnwrittenLength < Util.VECTOR2_LENGTH)
+                throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'Vector2'!");
+
+            Add(value.x);
+            Add(value.y);
+
+            return this;
         }
 
+        public Vector2 GetVector2()
+        {
+            if (UnreadLength < Util.VECTOR2_LENGTH)
+            {
+                Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'Vector2', returning Vector2.zero!");
+                return Vector2.zero;
+            }
+
+            return new Vector2(GetFloat(), GetFloat());
+        }
+        #endregion
+
+        #region Vector3
+        public Message Add(Vector3 value)
+        {
+            if (UnwrittenLength < Util.VECTOR3_LENGTH)
+                throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'Vector3'!");
+
+            Add(value.x);
+            Add(value.y);
+            Add(value.z);
+
+            return this;
+        }
+
+        public Vector3 GetVector3()
+        {
+            if (UnreadLength < Util.VECTOR3_LENGTH)
+            {
+                Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'Vector3', returning Vector3.zero!");
+                return Vector3.zero;
+            }
+
+            return new Vector3(GetFloat(), GetFloat(), GetFloat());
+        }
+        #endregion
+
+        #region Quaternion
+        public Message Add(Quaternion value)
+        {
+            if (UnwrittenLength < Util.QUATERNION_LENGTH)
+                throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'Quaternion'!");
+
+            Add(value.eulerAngles); // Should switch to smallest three in the future, but idc rn
+
+            return this;
+        }
+
+        public Quaternion GetQuaternion()
+        {
+            if (UnreadLength < Util.QUATERNION_LENGTH)
+            {
+                Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'Quaternion', returning Quaternion.identity!");
+                return Quaternion.identity;
+            }
+
+            return Quaternion.Euler(GetVector3()); // Should switch to smallest three in the future, but idc rn
+        }
+        #endregion
+
+        #region Guid
         public Message Add(Guid guid)
         {
             Add(guid.ToByteArray());
@@ -1116,11 +1175,12 @@ namespace VirtualVoid.Networking.Steam
         {
             return new Guid(GetByteArray(16));
         }
+        #endregion
 
         #region Struct
         public Message Add<T>(T str) where T : struct, INetworkMessage
         {
-            if (UnwrittenLength < str.GetSize())
+            if (UnwrittenLength < str.GetMaxSize())
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type '" + typeof(T) + "'!");
 
             //Add(Serialization.SerializeINetworkMessage(str));
@@ -1130,7 +1190,7 @@ namespace VirtualVoid.Networking.Steam
 
         public T GetStruct<T>() where T : struct, INetworkMessage
         {
-            byte size = default(T).GetSize();
+            byte size = default(T).GetMaxSize();
 
             if (UnreadLength < size)
             {
@@ -1139,9 +1199,79 @@ namespace VirtualVoid.Networking.Steam
             }
 
             readPos += size;
-            return Serialization.DeserializeINetworkMessage<T>(new ArraySegment<byte>(Bytes, readPos - size, size));
+            //return Serialization.DeserializeINetworkMessage<T>(new ArraySegment<byte>(Bytes, readPos - size, size));
+            return Serialization.DeserializeINetworkMessage<T>(this);
         }
         #endregion
+
+        #region NetworkID
+        public Message Add(NetworkID networkID)
+        {
+            if (networkID == null)
+            {
+                Debug.LogWarning("Tried to add NetworkID to message, but it was null!");
+                return this;
+            }
+
+            Add(networkID.netID);
+            return this;
+        }
+
+        public NetworkID GetNetworkID()
+        {
+            uint netID = GetUInt();
+
+            if (!NetworkID.networkIDs.TryGetValue(netID, out NetworkID networkID))
+            {
+                Debug.LogWarning("Tried to read NetworkID from message, but no NetworkID with netID " + netID + " exists!");
+                return null;
+            }
+
+            return networkID;
+        }
+        #endregion
+
+        #region NetworkBehavior
+        public Message Add(NetworkBehavior networkBehavior)
+        {
+            if (networkBehavior == null)
+            {
+                Debug.LogWarning("Tried to add NetworkBehavior to message, but it was null!");
+                return this;
+            }
+
+            Add(networkBehavior.networkID);
+            Add(networkBehavior.ComponentIndex);
+
+            return this;
+        }
+
+        public T GetNetworkBehavior<T>() where T : NetworkBehavior
+        {
+            NetworkID networkID = GetNetworkID();
+            byte compIndex = GetByte();
+
+            if (networkID == null)
+            {
+                Debug.LogWarning($"Tried to get NetworkBehavior ({nameof(T)}), but could not get NetworkID from the message!");
+                return null;
+            }
+
+            if (!(networkID.netBehaviors[compIndex] is T comp))
+            {
+                Debug.LogWarning($"Tried to get NetworkBehavior ({nameof(T)}), but the NetworkBehavior at index {compIndex} was not of type {nameof(T)}!");
+                return null;
+            }
+
+            return comp;
+        }
+        #endregion
+
+        public SteamId GetSteamId()
+        {
+            return GetULong();
+        }
+
         #endregion
     }
 

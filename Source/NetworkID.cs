@@ -6,20 +6,24 @@ using UnityEngine;
 using UnityEditor;
 using UnityEditor.Experimental.SceneManagement;
 #endif
+using VirtualVoid.Networking.Steam.LLAPI;
 
 namespace VirtualVoid.Networking.Steam
 {
+    // Most of this code is ripped straight from Mirror. https://github.com/vis2k/Mirror
+    // The people working on it are smarter than I am and they have figured out all this complex stuff so :/
+
     public class NetworkID : MonoBehaviour
     {
-        private bool spawnedDuringRuntime;
-        private bool hasSpawned;
+        private bool copyOfSceneObj;
+        [SerializeField, HideInInspector] private bool hasSpawned;
         public uint netID; //{ get; private set; }
         public uint sceneID; //{ get; private set; }
 
         private bool destroyed;
 
-        private static Dictionary<uint, NetworkID> networkIDs = new Dictionary<uint, NetworkID>();
-        private static Dictionary<uint, NetworkID> sceneIDs = new Dictionary<uint, NetworkID>();
+        internal static readonly Dictionary<uint, NetworkID> networkIDs = new Dictionary<uint, NetworkID>();
+        internal static readonly Dictionary<uint, NetworkID> sceneIDs = new Dictionary<uint, NetworkID>();
 
         private NetworkBehavior[] _netBehaviors;
 
@@ -42,7 +46,56 @@ namespace VirtualVoid.Networking.Steam
         private static uint nextNetworkId = 1;
         internal static uint NextNetID() => nextNetworkId++;
 
-        public static void ResetNetIDs() => nextNetworkId = 1;
+        public static void ResetNetIDs()
+        {
+            nextNetworkId = 1;
+            networkIDs.Clear();
+        }
+
+        public Guid assetID
+        {
+            get
+            {
+#if UNITY_EDITOR
+                // This is important because sometimes OnValidate does not run (like when adding view to prefab with no child links)
+                if (string.IsNullOrEmpty(assetIDString))
+                    AssignIDs();
+#endif
+                // convert string to Guid and use .Empty to avoid exception if
+                // we would use 'new Guid("")'
+                return string.IsNullOrEmpty(assetIDString) ? Guid.Empty : new Guid(assetIDString);
+            }
+            internal set
+            {
+                string newAssetIdString = value == Guid.Empty ? string.Empty : value.ToString("N");
+                string oldAssetIdSrting = assetIDString;
+
+                // they are the same, do nothing
+                if (oldAssetIdSrting == newAssetIdString)
+                {
+                    return;
+                }
+
+                // new is empty
+                if (string.IsNullOrEmpty(newAssetIdString))
+                {
+                    Debug.LogError($"Can not set AssetId to empty guid on NetworkID '{name}', old assetId '{oldAssetIdSrting}'");
+                    return;
+                }
+
+                // old not empty
+                if (!string.IsNullOrEmpty(oldAssetIdSrting))
+                {
+                    Debug.LogError($"Can not Set AssetId on NetworkIdentity '{name}' because it already had an assetId, current assetId '{oldAssetIdSrting}', attempted new assetId '{newAssetIdString}'");
+                    return;
+                }
+
+                // old is empty
+                assetIDString = newAssetIdString;
+                // Debug.Log($"Settings AssetId on NetworkIdentity '{name}', new assetId '{newAssetIdString}'");
+            }
+        }
+        [SerializeField, HideInInspector] string assetIDString;
 
         public bool IsServer
         {
@@ -57,7 +110,7 @@ namespace VirtualVoid.Networking.Steam
             if (hasSpawned)
             {
                 Debug.LogError($"{name} has already spawned. Don't call Instantiate for NetworkIDs that were in the scene since the beginning (aka scene objects). Destroying...");
-                spawnedDuringRuntime = true;
+                copyOfSceneObj = true;
                 Destroy(gameObject);
 
                 return;
@@ -67,8 +120,14 @@ namespace VirtualVoid.Networking.Steam
 
         private void Start()
         {
+            if (!IsServer) return;
+
             if (netID == 0)
                 netID = NextNetID();
+
+            networkIDs[netID] = this;
+
+            SteamManager.SpawnObject(this);
         }
 
         private void OnValidate()
@@ -83,15 +142,43 @@ namespace VirtualVoid.Networking.Steam
         }
 
 #if UNITY_EDITOR
+        private void AssignAssetID(string path) => assetIDString = AssetDatabase.AssetPathToGUID(path);
+        private void AssignAssetID(GameObject prefab) => AssignAssetID(AssetDatabase.GetAssetPath(prefab));
+
         private void AssignIDs()
         {
-            if (PrefabStageUtility.GetCurrentPrefabStage() != null)
+            if (Util.IsGameObjectPrefab(gameObject))
             {
-                return;
+                // force 0 for prefabs
+                sceneID = 0;
+                AssignAssetID(gameObject);
+            }
+
+            else if (PrefabStageUtility.GetCurrentPrefabStage() != null)
+            {
+                if (PrefabStageUtility.GetPrefabStage(gameObject) != null)
+                {
+                    // force 0 for prefabs
+                    sceneID = 0;
+
+                    string path = PrefabStageUtility.GetCurrentPrefabStage().assetPath;
+
+                    AssignAssetID(path);
+                }
+            }
+            else if (Util.IsSceneObjectWithPrefabParent(gameObject, out GameObject prefab))
+            {
+                AssignSceneID();
+                AssignAssetID(prefab);
             }
             else
             {
                 AssignSceneID();
+
+                if (!EditorApplication.isPlaying)
+                {
+                    assetIDString = "";
+                }
             }
         }
 
@@ -103,11 +190,12 @@ namespace VirtualVoid.Networking.Steam
             {
                 sceneID = 0;
 
-                uint newID = Util.GetRandomUInt();
+                if (BuildPipeline.isBuildingPlayer)
+                    throw new InvalidOperationException("Scene " + gameObject.scene.path + " needs to be opened and resaved before building, because the scene object " + name + " has no valid sceneId yet.");
 
                 Undo.RecordObject(this, "Generated SceneID");
 
-                sceneID = Util.GetRandomUInt();
+                uint newID = Util.GetRandomUInt();
 
                 duplicate = sceneIDs.TryGetValue(newID, out existing) && existing != null && existing != this;
 
@@ -117,14 +205,13 @@ namespace VirtualVoid.Networking.Steam
                 }
             }
 
-            if (sceneIDs.ContainsKey(sceneID)) sceneIDs[sceneID] = this;
-            else sceneIDs.Add(sceneID, this);
+            sceneIDs[sceneID] = this;
         }
 #endif
 
         void OnDestroy()
         {
-            if (spawnedDuringRuntime)
+            if (copyOfSceneObj)
                 return;
 
             if (IsServer && !destroyed)
@@ -136,9 +223,10 @@ namespace VirtualVoid.Networking.Steam
             if (networkIDs.ContainsKey(netID)) networkIDs.Remove(netID);
         }
 
-        internal void Destroy()
+        [ContextMenu("Log IDs")]
+        public void LogIDs()
         {
-            if (IsServer && !destroyed) Destroy(gameObject);
+            Debug.Log($"IDs for GameObject {name}\n-SceneID: {sceneID}\n-AssetID: {assetID}\n-NetID: {netID}");
         }
     }
 }

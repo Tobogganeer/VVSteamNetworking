@@ -6,8 +6,20 @@ namespace VirtualVoid.Networking.Steam
 {
     internal static class Util
     {
-        // These functions are all ripped from Mirror
+        public const byte BYTE_LENGTH = 1;
+        public const byte BOOL_LENGTH = sizeof(bool);
+        public const byte SHORT_LENGTH = sizeof(short);
+        public const byte INT_LENGTH = sizeof(int);
+        public const byte LONG_LENGTH = sizeof(long);
+        public const byte FLOAT_LENGTH = sizeof(float);
+        public const byte DOUBLE_LENGTH = sizeof(double);
+        public const byte VECTOR2_LENGTH = FLOAT_LENGTH * 2;
+        public const byte VECTOR3_LENGTH = FLOAT_LENGTH * 3;
+        public const byte QUATERNION_LENGTH = FLOAT_LENGTH * 4;
+        public const byte GUID_LENGTH = 16;
 
+
+        // These functions are all ripped from Mirror
 
         internal static int GetStableHashCode(this string str)
         {
@@ -39,6 +51,11 @@ namespace VirtualVoid.Networking.Steam
             }
         }
 
+        /// <summary>
+        /// Returns true if <paramref name="obj"/> is a prefab in the project (Not in the scene!)
+        /// </summary>
+        /// <param name="obj"></param>
+        /// <returns></returns>
         internal static bool IsGameObjectPrefab(GameObject obj)
         {
 #if UNITY_EDITOR
