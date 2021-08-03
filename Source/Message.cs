@@ -31,7 +31,7 @@ namespace VirtualVoid.Networking.Steam
         public int WrittenLength => writePos;
         /// <summary>How many more bytes can be written into the packet.</summary>
         private int UnwrittenLength => Bytes.Length - writePos;
-        /// <summary>The message's send mode.</summary>
+        /// <summary>The message's send type.</summary>
         public P2PSend SendType { get; private set; }
         /// <summary>The message's data.</summary>
         internal byte[] Bytes { get; set; }
@@ -39,20 +39,25 @@ namespace VirtualVoid.Networking.Steam
         private const ushort LOWER_INTERNAL_ID = 2560;
         private const ushort UPPER_INTERNAL_ID = 2585;
 
-        private const ushort MAX_INTERNAL_MESSAGE_SIZE = 256;
+        private const ushort MAX_INTERNAL_MESSAGE_SIZE = 512; // Increased from 256 because NetworkAnimator could send a lot potentially
 
         /// <summary>The position in the byte array that the next bytes will be written to.</summary>
-        private ushort writePos = 0;
+        internal ushort writePos = 0;
         /// <summary>The position in the byte array that the next bytes will be read from.</summary>
         private ushort readPos = 0;
 
         public static bool IsInternalMessage(ushort id) => id >= LOWER_INTERNAL_ID && id <= UPPER_INTERNAL_ID;
 
+        public override string ToString()
+        {
+            return $"ReadableLength: {ReadableLength}\nUnreadLength: {UnreadLength}\nWrittenLength: {WrittenLength}\nUnwrittenLength: {UnwrittenLength}";
+        }
+
         #region Constructors
 
         /// <summary>Initializes a reusable Message instance.</summary>
         /// <param name="maxSize">The maximum amount of bytes the message can contain.</param>
-        private Message(ushort maxSize = 1500)
+        private Message(ushort maxSize = SteamManager.PUBLIC_MESSAGE_BUFFER_SIZE)
         {
             Bytes = new byte[maxSize];
         }
@@ -60,7 +65,7 @@ namespace VirtualVoid.Networking.Steam
         /// <summary>Initializes a reusable Message instance with a pre-defined header type.</summary>
         /// <param name="maxSize">The maximum amount of bytes the message can contain.</param>
         /// <param name="sendType">The mode in which the message should be sent.</param>
-        private Message(P2PSend sendType, ushort maxSize = 1500)
+        private Message(P2PSend sendType, ushort maxSize = SteamManager.PUBLIC_MESSAGE_BUFFER_SIZE)
         {
             Bytes = new byte[maxSize];
 
@@ -90,9 +95,9 @@ namespace VirtualVoid.Networking.Steam
         /// <param name="data">The bytes contained in the message.</param>
         /// <param name="dataLength">The length of the data that should be copied. 0 for all the data.</param>
         /// <returns>A message instance ready to be used for handling.</returns>
-        internal static Message Create(P2PSend sendType, byte[] data)
+        internal static Message Create(byte[] data, ushort dataLength = 0)
         {
-            Reinitialize(handle, sendType, data);
+            Reinitialize(handle, P2PSend.Reliable, data, dataLength);
             return handle;
         }
 
@@ -127,9 +132,9 @@ namespace VirtualVoid.Networking.Steam
         /// <param name="sendType">The message's send type.</param>
         /// <param name="data">The bytes contained in the message.</param>
         /// <returns>A message instance ready to be used for sending.</returns>
-        private static Message CreateInternal(P2PSend sendType, byte[] data)
+        private static Message CreateInternal(P2PSend sendType, byte[] data, ushort dataLength = 0)
         {
-            Reinitialize(handleInternal, sendType, data);
+            Reinitialize(handleInternal, sendType, data, dataLength);
             return handleInternal;
         }
 
@@ -147,22 +152,24 @@ namespace VirtualVoid.Networking.Steam
         /// <param name="message">The message to initialize.</param>
         /// <param name="sendType">The message's send type.</param>
         /// <param name="data">The bytes contained in the message.</param>
-        private static void Reinitialize(Message message, P2PSend sendType, byte[] data)
+        private static void Reinitialize(Message message, P2PSend sendType, byte[] data, ushort dataLength = 0)
         {
+            ushort numBytes = dataLength == 0 ? (ushort)data.Length : dataLength;
+
             message.SendType = sendType;
-            message.writePos = (ushort)data.Length;
+            message.writePos = numBytes;
             message.readPos = 0;
 
-            if (data.Length > message.Bytes.Length)
+            if (numBytes > message.Bytes.Length)
             {
-                Debug.LogError($"Can't fully handle {data.Length} bytes because it exceeds the maximum of {message.Bytes.Length}, message will contain incomplete data!");
-                Array.Copy(data, 0, message.Bytes, 0, message.Bytes.Length);
+                Debug.LogError($"Can't fully handle {numBytes} bytes because it exceeds the maximum of {message.Bytes.Length}, message will contain incomplete data!");
+                Array.Copy(data, 0, message.Bytes, 0, numBytes);
                 message.ReadableLength = message.Bytes.Length;
             }
             else
             {
-                Array.Copy(data, 0, message.Bytes, 0, data.Length);
-                message.ReadableLength = data.Length;
+                Array.Copy(data, 0, message.Bytes, 0, numBytes);
+                message.ReadableLength = numBytes;
             }
         }
 
@@ -203,6 +210,19 @@ namespace VirtualVoid.Networking.Steam
             }
 
             return Bytes[readPos++]; // Get the byte at readPos' position
+        }
+
+        /// <summary>Retrieves a <see langword="byte"/> from the message, without moving the readPos.</summary>
+        /// <returns>The <see langword="byte"/> that was retrieved.</returns>
+        public byte PeekByte()
+        {
+            if (UnreadLength < 1)
+            {
+                Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'byte', returning 0!");
+                return 0;
+            }
+
+            return Bytes[readPos]; // Get the byte at readPos' position
         }
 
         /// <summary>Adds a <see langword="byte"/> array to the message.</summary>
@@ -1180,25 +1200,32 @@ namespace VirtualVoid.Networking.Steam
         #region Struct
         public Message Add<T>(T str) where T : struct, INetworkMessage
         {
-            if (UnwrittenLength < str.GetMaxSize())
-                throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type '" + typeof(T) + "'!");
+            //if (UnwrittenLength < str.GetMaxSize())
+            //    throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type '" + typeof(T) + "'!");
 
             //Add(Serialization.SerializeINetworkMessage(str));
-            str.AddToMessage(this);
+            try
+            {
+                str.AddToMessage(this);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Error adding {typeof(T).Name} to message! " + ex);
+            }
             return this;
         }
 
         public T GetStruct<T>() where T : struct, INetworkMessage
         {
-            byte size = default(T).GetMaxSize();
+            //byte size = default(T).GetMaxSize();
+            //
+            //if (UnreadLength < size)
+            //{
+            //    Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type '" + typeof(T).Name + "', returning default(T)!");
+            //    return default;
+            //}
 
-            if (UnreadLength < size)
-            {
-                Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type '" + typeof(T) + "', returning default(T)!");
-                return default;
-            }
-
-            readPos += size;
+            //readPos += size;
             //return Serialization.DeserializeINetworkMessage<T>(new ArraySegment<byte>(Bytes, readPos - size, size));
             return Serialization.DeserializeINetworkMessage<T>(this);
         }
@@ -1253,13 +1280,13 @@ namespace VirtualVoid.Networking.Steam
 
             if (networkID == null)
             {
-                Debug.LogWarning($"Tried to get NetworkBehavior ({nameof(T)}), but could not get NetworkID from the message!");
+                Debug.LogWarning($"Tried to get {typeof(T).Name}, but could not get NetworkID from the message!");
                 return null;
             }
 
             if (!(networkID.netBehaviors[compIndex] is T comp))
             {
-                Debug.LogWarning($"Tried to get NetworkBehavior ({nameof(T)}), but the NetworkBehavior at index {compIndex} was not of type {nameof(T)}!");
+                Debug.LogWarning($"Tried to get {typeof(T).Name}, but the NetworkBehavior at index {compIndex} was not of type {typeof(T).Name}!");
                 return null;
             }
 

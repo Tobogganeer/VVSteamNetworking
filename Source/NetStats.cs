@@ -27,9 +27,11 @@ namespace VirtualVoid.Networking.Steam
         private static readonly List<long> pings = new List<long>(MAX_PINGS);
         private const byte MAX_PINGS = 5;
 
+        public bool uiEnabled = true;
+
         private void OnEnable()
         {
-            InvokeRepeating(nameof(SlowUpdate), 1f, 2f);
+            InvokeRepeating(nameof(SlowUpdate), 1f, 3f);
         }
 
         private void OnDisable()
@@ -93,11 +95,20 @@ namespace VirtualVoid.Networking.Steam
 
         private void UpdateUI()
         {
-            pingText.text = "Ping: " + Math.Round(Ping).ToString() + "ms";
-            packetsDownText.text = "Packets Down: " + PacketsReceived;
-            packetsUpText.text = "Packets Up: " + PacketsSent;
-            bytesDownText.text = "Bytes Down: " + BytesReceived;
-            bytesUpText.text = "Bytes Up: " + BytesSent;
+            if (!uiEnabled) return;
+
+            try
+            {
+                pingText.text = "Ping: " + Math.Round(Ping).ToString() + "ms";
+                packetsDownText.text = "Packets Down: " + PacketsReceived;
+                packetsUpText.text = "Packets Up: " + PacketsSent;
+                bytesDownText.text = "Bytes Down: " + BytesReceived;
+                bytesUpText.text = "Bytes Up: " + BytesSent;
+            }
+            catch
+            {
+                Debug.Log("Caught NullReferenceException from missing texts on game close.");
+            }
         }
     }
 }

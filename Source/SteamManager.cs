@@ -26,7 +26,7 @@ namespace VirtualVoid.Networking.Steam
                 return;
             }
 
-            SteamClient.Init(appId, false);
+            SteamClient.Init(appID, false);
             SteamNetworkingUtils.InitRelayNetworkAccess();
 
             InitSteamEvents();
@@ -46,20 +46,28 @@ namespace VirtualVoid.Networking.Steam
 
         // Inspector Stuff
         [Header("The steam app id of your app.")]
-        public uint appId = 480;
+        [SerializeField] private uint appID = 480;
+        public static uint AppID => instance.appID;
 
         [Header("Disconnects clients if their Application.version is different from the server's.")]
-        public bool disconnectClientsFromDifferentVersion = true;
+        [SerializeField] private bool disconnectClientsFromDifferentVersion = true;
 
         [Header("The maximum number of players who can join at once.")]
-        public uint maxPlayers = 4;
+        [SerializeField] private uint maxPlayers = 4;
 
         [Header("Sets the fixed update rate. Set to 0 to keep as it is.")]
         [Range(0, 128)]
-        public int tickRate;
+        [SerializeField] private int tickRate;
+        public static int TickRate => instance.tickRate;
 
         [Header("All prefabs that can be spawned on the client should be in this list.")]
-        public GameObject[] spawnablePrefabs;
+        [SerializeField] private GameObject[] spawnablePrefabs;
+
+        [Header("The object spawned in when a client joins.")]
+        [SerializeField] private Client playerPrefab;
+        internal static Client PlayerPrefab => instance.playerPrefab;
+
+        //private
 
         // Static Members
         public static Lobby CurrentLobby { get; private set; }
@@ -78,12 +86,15 @@ namespace VirtualVoid.Networking.Steam
         public static SteamId ServerID { get; private set; }
         public static bool IsServer => SteamID == ServerID;
 
+        private static bool serverShuttingDown = false;
+
         //private static SteamSocketServer currentServer;
         //private static SteamSocketConnection currentConnection;
 
         // Events
         //public static event Action OnServerStart;
         //public static event Action OnServerStop;
+        internal static event Action OnServerStart;
 
         public static event LobbyCreatedCallback OnLobbyCreated; // Server
         public static event LobbyCallback OnLobbyJoined; // Both
@@ -114,7 +125,7 @@ namespace VirtualVoid.Networking.Steam
         public delegate void LobbyCreatedCallback(Lobby lobby, bool success);
 
         // Dictionaries
-        public static readonly Dictionary<SteamId, ConnectedClient> clients = new Dictionary<SteamId, ConnectedClient>();
+        public static readonly Dictionary<SteamId, Client> clients = new Dictionary<SteamId, Client>();
 
         private static readonly Dictionary<ushort, ClientMessageCallback> messagesFromClientCallbacks = new Dictionary<ushort, ClientMessageCallback>();
         private static readonly Dictionary<ushort, MessageCallback> messagesFromServerCallbacks = new Dictionary<ushort, MessageCallback>();
@@ -127,6 +138,10 @@ namespace VirtualVoid.Networking.Steam
 
         // Constants
         private const string LOBBY_SERVER_VERSION = "server_version";
+        internal const ushort PUBLIC_MESSAGE_BUFFER_SIZE = 2048;
+
+        // Allocation Reduction
+        internal static byte[] tempMessageByteBuffer = new byte[PUBLIC_MESSAGE_BUFFER_SIZE];
         
         private void InitSteamEvents()
         {
@@ -143,18 +158,21 @@ namespace VirtualVoid.Networking.Steam
         {
             if (IsServer)
             {
-                if (!clients.ContainsKey(friend.Id))
+                if (friend.Id != SteamID)
                 {
-                    clients.Add(friend.Id, new ConnectedClient(friend.Id));
-                }
-                else
-                {
-                    clients[friend.Id] = new ConnectedClient(friend.Id);
-                }
+                    Client.Create(friend.Id);
 
-                foreach (NetworkID networkID in NetworkID.networkIDs.Values)
-                {
-                    SpawnObject(networkID, friend.Id);
+                    try
+                    {
+                        foreach (NetworkID networkID in NetworkID.networkIDs.Values)
+                        {
+                            SpawnObject(networkID, friend.Id);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.Log($"Caught error spawning network objects for {friend.Name}: {ex}");
+                    }
                 }
             }
 
@@ -165,7 +183,8 @@ namespace VirtualVoid.Networking.Steam
         {
             if (IsServer)
             {
-                clients.Add(SteamID, new ConnectedClient(SteamID));
+                if (clients.ContainsKey(SteamID)) return;
+                Client.Create(SteamID);
                 OnLobbyJoined?.Invoke(lobby);
                 return;
             }
@@ -183,11 +202,16 @@ namespace VirtualVoid.Networking.Steam
             AcceptP2P(ServerID);
         }
 
-        private void SteamFriends_OnGameLobbyJoinRequested(Lobby lobby, SteamId id)
+        private async void SteamFriends_OnGameLobbyJoinRequested(Lobby lobby, SteamId id)
         {
             CurrentLobby.Leave();
 
-            lobby.Join();
+            if (await lobby.Join() != RoomEnter.Success)
+            {
+                Debug.LogError("Tried to join lobby, but was not successful!");
+                LeaveServer();
+                return;
+            }
             CurrentLobby = lobby;
             ServerID = CurrentLobby.Owner.Id;
             AcceptP2P(ServerID);
@@ -197,29 +221,36 @@ namespace VirtualVoid.Networking.Steam
         {
             if (friend.Id == SteamID)
             {
-                OnLobbyLeft?.Invoke(lobby);
+                OnLeaveLobby(lobby);
             }
+
+            OnLobbyMemberLeave?.Invoke(lobby, friend); // Call before client is removed from dict
 
             if (IsServer)
             {
                 if (friend.Id != SteamID)
                 {
-                    if (clients.ContainsKey(friend.Id))
-                    {
-                        clients.Remove(friend.Id);
-                    }
-                    else
-                    {
+                    if (!clients.ContainsKey(friend.Id))
                         Debug.LogWarning("Client " + friend.Id + " left the lobby, but they were never added to the Clients dictionary!");
-                    }
+
+                    SteamNetworking.CloseP2PSessionWithUser(friend.Id);
+                    clients[friend.Id].Destroy();
                 }
                 else
                 {
                     LeaveServer();
+                    return;
                 }
             }
 
-            OnLobbyMemberLeave?.Invoke(lobby, friend);
+            if (friend.Id == ServerID && !IsServer)
+                LeaveServer();
+        }
+
+        private static void OnLeaveLobby(Lobby lobby)
+        {
+            DestroyAllRuntimeNetworkIDs();
+            OnLobbyLeft?.Invoke(lobby);
         }
 
         #endregion
@@ -234,7 +265,14 @@ namespace VirtualVoid.Networking.Steam
                 P2Packet? packet = SteamNetworking.ReadP2PPacket((int)P2PMessageChannels.CLIENT);
                 if (packet.HasValue)
                 {
-                    HandleDataFromServer(Message.Create(P2PSend.Unreliable, packet.Value.Data), packet.Value.SteamId);
+                    try
+                    {
+                        HandleDataFromServer(Message.Create(packet.Value.Data), packet.Value.SteamId);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogWarning("Exception handling data from server: " + ex);
+                    }
                 }
             }
 
@@ -245,7 +283,14 @@ namespace VirtualVoid.Networking.Steam
                     P2Packet? packet = SteamNetworking.ReadP2PPacket((int)P2PMessageChannels.SERVER);
                     if (packet.HasValue)
                     {
-                        HandleDataFromClient(Message.Create(P2PSend.Unreliable, packet.Value.Data), packet.Value.SteamId);
+                        try
+                        {
+                            HandleDataFromClient(Message.Create(packet.Value.Data), packet.Value.SteamId);
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.LogWarning("Exception handling data from " + new Friend(packet.Value.SteamId) + ": " + ex);
+                        }
                     }
                 }
             }
@@ -270,7 +315,15 @@ namespace VirtualVoid.Networking.Steam
         private void OnDisable()
         {
             LeaveServer();
-            SteamClient.Shutdown();
+            try
+            {
+                SteamClient.Shutdown();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("Error shutting down steam client!" + ex);
+            }
+            
         }
         #endregion
 
@@ -291,17 +344,15 @@ namespace VirtualVoid.Networking.Steam
 
                 if (await CurrentLobby.Join() != RoomEnter.Success)
                 {
-                    Debug.Log("Error joining lobby!");
+                    Debug.Log("Error joining own lobby!");
                 }
 
                 return true;
             }
             else
             {
-                Debug.LogError("Lobby created but returned null value!");
-
                 OnLobbyCreated?.Invoke(CurrentLobby, false);
-                throw new NullReferenceException();
+                throw new NullReferenceException("Lobby created but returned null value!");
             }
         }
 
@@ -331,7 +382,7 @@ namespace VirtualVoid.Networking.Steam
             if (CurrentLobby.Id != 0)
             {
                 CurrentLobby.Leave();
-                OnLobbyLeft?.Invoke(CurrentLobby);
+                OnLeaveLobby(CurrentLobby);
                 CurrentLobby = default;
             }
         }
@@ -340,7 +391,11 @@ namespace VirtualVoid.Networking.Steam
         #region Server
         public static async void HostServer(SteamLobbyPrivacyMode mode = SteamLobbyPrivacyMode.FRIENDS_ONLY, bool joinable = true)
         {
-            LeaveServer();
+            //LeaveServer();
+            LeaveCurrentLobby();
+            ResetValues();
+
+            serverShuttingDown = false;
 
             if (!await CreateLobby(instance.maxPlayers, mode, joinable))
             {
@@ -349,6 +404,7 @@ namespace VirtualVoid.Networking.Steam
             }
 
             SteamNetworking.AllowP2PPacketRelay(true);
+            OnServerStart?.Invoke();
         }
 
         private static void StopServer()
@@ -356,6 +412,7 @@ namespace VirtualVoid.Networking.Steam
             if (!IsServer) return;
 
             //OnServerStop?.Invoke();
+            serverShuttingDown = true;
             KickAllClients();
         }
 
@@ -363,11 +420,11 @@ namespace VirtualVoid.Networking.Steam
         {
             if (IsServer)
             {
-                List<SteamId> clientIDs = new List<SteamId>();
+                List<SteamId> clientIDs = new List<SteamId>((int)instance.maxPlayers);
 
-                foreach (ConnectedClient client in clients.Values)
+                foreach (Client client in clients.Values)
                 {
-                    clientIDs.Add(client.steamId);
+                    clientIDs.Add(client.SteamID);
                 }
 
                 for (int i = 0; i < clientIDs.Count; i++)
@@ -384,13 +441,22 @@ namespace VirtualVoid.Networking.Steam
         /// </summary>
         public static void LeaveServer()
         {
-            if (IsServer)
-                StopServer();
+            if (serverShuttingDown) return;
 
-            InternalClientMessages.SendDisconnect();
-            SteamNetworking.CloseP2PSessionWithUser(ServerID);
-            LeaveCurrentLobby();
-            ResetValues();
+            try
+            {
+                if (IsServer)
+                    StopServer();
+
+                InternalClientMessages.SendDisconnect();
+                SteamNetworking.CloseP2PSessionWithUser(ServerID);
+                LeaveCurrentLobby();
+                ResetValues();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("Error while trying to leave server! " + ex);
+            }
         }
 
         #endregion
@@ -585,9 +651,8 @@ namespace VirtualVoid.Networking.Steam
             }
             else
             {
-                byte[] truncatedBytes = new byte[message.WrittenLength];
-                Array.Copy(message.Bytes, 0, truncatedBytes, 0, message.WrittenLength);
-                HandleDataFromClient(Message.Create(P2PSend.Unreliable, truncatedBytes), SteamID);
+                Array.Copy(message.Bytes, 0, tempMessageByteBuffer, 0, message.WrittenLength);
+                HandleDataFromClient(Message.Create(tempMessageByteBuffer, (ushort)message.WrittenLength), SteamID);
             }
         }
 
@@ -612,26 +677,25 @@ namespace VirtualVoid.Networking.Steam
             }
             else
             {
-                byte[] truncatedBytes = new byte[message.WrittenLength];
-                Array.Copy(message.Bytes, 0, truncatedBytes, 0, message.WrittenLength);
-                HandleDataFromServer(Message.Create(P2PSend.Unreliable, truncatedBytes), SteamID);
+                Array.Copy(message.Bytes, 0, tempMessageByteBuffer, 0, message.WrittenLength);
+                HandleDataFromServer(Message.Create(tempMessageByteBuffer, (ushort)message.WrittenLength), SteamID);
             }
         }
 
         public static void SendMessageToAllClients(Message message)
         {
-            foreach (ConnectedClient client in clients.Values)
+            foreach (Client client in clients.Values)
             {
-                SendMessageToClient(client.steamId, message);
+                SendMessageToClient(client.SteamID, message);
             }
         }
 
         public static void SendMessageToAllClients(SteamId except, Message message)
         {
-            foreach (ConnectedClient client in clients.Values)
+            foreach (Client client in clients.Values)
             {
-                if (client.steamId != except)
-                    SendMessageToClient(client.steamId, message);
+                if (client.SteamID != except)
+                    SendMessageToClient(client.SteamID, message);
             }
         }
         #endregion
@@ -641,7 +705,7 @@ namespace VirtualVoid.Networking.Steam
         {
             if (fromId != ServerID)
             {
-                Debug.LogWarning($"Received packet from {fromId}, but current server ID is set to {ServerID}!");
+                Debug.LogWarning($"Received packet from {new Friend(fromId).Name} ({fromId}), but current server ID is set to {new Friend(ServerID).Name} ({ServerID})!");
                 return;
             }
 
@@ -670,12 +734,24 @@ namespace VirtualVoid.Networking.Steam
 
         private static void HandleDataFromClient(Message message, SteamId fromClient)
         {
-            // check if steam ID is in clients dict
-
             if (fromClient != SteamID)
                 NetStats.OnPacketReceived(message.WrittenLength);
 
+            if (serverShuttingDown) return;
+
+            if (!clients.ContainsKey(fromClient))
+            {
+                Debug.LogWarning($"Received message from {new Friend(fromClient).Name}, but they are not in the clients dictionary!");
+                return;
+            }
+
             ushort id = message.GetUShort();
+
+            if (!clients[fromClient].sceneLoaded)
+            {
+                Debug.Log($"Received message from {clients[fromClient].SteamName}, but they have not loaded the next scene yet.");
+                return;
+            }
 
             if (Message.IsInternalMessage(id))
             {
@@ -714,8 +790,7 @@ namespace VirtualVoid.Networking.Steam
             }
 
             if (!messagesFromClientCallbacks.ContainsKey(messageID)) messagesFromClientCallbacks.Add(messageID, callback);
-
-            messagesFromClientCallbacks[messageID] += callback;
+            else messagesFromClientCallbacks[messageID] += callback;
         }
 
         /// <summary>
@@ -733,8 +808,7 @@ namespace VirtualVoid.Networking.Steam
             }
 
             if (!messagesFromServerCallbacks.ContainsKey(messageID)) messagesFromServerCallbacks.Add(messageID, callback);
-
-            messagesFromServerCallbacks[messageID] += callback;
+            else messagesFromServerCallbacks[messageID] += callback;
         }
         #endregion
 
@@ -753,10 +827,8 @@ namespace VirtualVoid.Networking.Steam
                 return;
             }
 
-            if (!internalMessagesFromClientCallbacks.ContainsKey(messageID))
-                internalMessagesFromClientCallbacks.Add(messageID, callback);
-
-            internalMessagesFromClientCallbacks[messageID] += callback;
+            if (!internalMessagesFromClientCallbacks.ContainsKey(messageID)) internalMessagesFromClientCallbacks.Add(messageID, callback);
+            else internalMessagesFromClientCallbacks[messageID] += callback;
         }
 
         /// <summary>
@@ -774,8 +846,7 @@ namespace VirtualVoid.Networking.Steam
             }
 
             if (!internalMessagesFromServerCallbacks.ContainsKey(messageID)) internalMessagesFromServerCallbacks.Add(messageID, callback);
-
-            internalMessagesFromServerCallbacks[messageID] += callback;
+            else internalMessagesFromServerCallbacks[messageID] += callback;
         }
         #endregion
 
@@ -837,36 +908,37 @@ namespace VirtualVoid.Networking.Steam
         {
             if (!IsServer)
             {
-                Debug.LogWarning("Tried to disconnect client, but this client is not the server!");
+                Debug.LogWarning("Tried to disconnect " + new Friend(clientID) + ", but this client is not the server!");
                 return;
             }
 
             if (!clients.ContainsKey(clientID))
             {
-                Debug.LogWarning("Tried to disconnect client with ID " + clientID + ", but clients dictionary does not contain that ID!");
+                if (serverShuttingDown && SteamID == clientID) return;
+
+                Debug.LogWarning("Tried to disconnect client with ID " + clientID + ", but clients dictionary does not contain that ID! (May be duplicate call)");
                 if (SteamID == clientID) Debug.Log("^^^ This ID was your ID, may happen when closing the server.");
             }
-            else
-            {
-                clients.Remove(clientID);
-            }
 
-            SteamNetworking.CloseP2PSessionWithUser(clientID);
+            InternalServerMessages.SendClientDisconnected(clientID);
 
             OnClientDisconnect?.Invoke(clientID);
 
-            InternalServerMessages.SendClientDisconnected(clientID);
+            if (clients[clientID] != null)
+                clients[clientID].Destroy();
+
+            SteamNetworking.CloseP2PSessionWithUser(clientID);
         }
 
-        public static void DisconnectClient(ConnectedClient client)
+        public static void DisconnectClient(Client client)
         {
-            if (!IsServer)
+            if (client == null)
             {
-                Debug.LogWarning("Tried to disconnect client, but this client is not the server!");
+                Debug.LogWarning("Tried to disconnect client, but it was null!");
                 return;
             }
 
-            DisconnectClient(client.steamId);
+            DisconnectClient(client.SteamID);
         }
 
         private void AcceptP2P(SteamId otherID)
@@ -918,7 +990,7 @@ namespace VirtualVoid.Networking.Steam
                 Debug.LogError($"Tried to load scene {sceneName}, but that scene does not exist!");
             }
 
-            foreach (ConnectedClient client in clients.Values)
+            foreach (Client client in clients.Values)
             {
                 client.sceneLoaded = false;
             }
@@ -932,7 +1004,7 @@ namespace VirtualVoid.Networking.Steam
 
         public static bool AllClientsLoadedInScene()
         {
-            foreach (ConnectedClient client in clients.Values)
+            foreach (Client client in clients.Values)
             {
                 if (!client.sceneLoaded) return false;
             }
@@ -1020,6 +1092,34 @@ namespace VirtualVoid.Networking.Steam
             registeredPrefabs[networkID.assetID] = obj;
         }
 
+        private static void DestroyAllRuntimeNetworkIDs()
+        {
+            // Used when disconnecting or server shutdown when the NetworkID destroy messages may not be received/sent
+
+            if (IsServer) return;
+
+            uint[] netIDsToDestroy = new uint[NetworkID.networkIDs.Count];
+            int numNetworkIDsToDestroy = 0;
+
+            foreach (NetworkID networkID in NetworkID.networkIDs.Values)
+            {
+                if (networkID != null && networkID.sceneID == 0)
+                {
+                    netIDsToDestroy[numNetworkIDsToDestroy] = networkID.netID;
+                    numNetworkIDsToDestroy++;
+                }
+            }
+
+            for (uint i = 0; i < numNetworkIDsToDestroy; i++)
+            {
+                NetworkID networkID = NetworkID.networkIDs[i];
+                if (networkID != null)
+                {
+                    Debug.Log("Destroying NetworkID " + networkID.name);
+                    Destroy(networkID.gameObject);
+                }
+            }
+        }
         #endregion
     }
 

@@ -116,9 +116,11 @@ namespace VirtualVoid.Networking.Steam
                 return;
             }
             hasSpawned = true;
+
+            SteamManager.OnServerStart += SteamManager_OnServerStart;
         }
 
-        private void Start()
+        private void SteamManager_OnServerStart()
         {
             if (!IsServer) return;
 
@@ -127,6 +129,18 @@ namespace VirtualVoid.Networking.Steam
 
             networkIDs[netID] = this;
 
+            SteamManager.SpawnObject(this);
+        }
+
+        private void Start()
+        {
+            if (!IsServer) return;
+        
+            if (netID == 0)
+                netID = NextNetID();
+        
+            networkIDs[netID] = this;
+        
             SteamManager.SpawnObject(this);
         }
 
@@ -216,6 +230,7 @@ namespace VirtualVoid.Networking.Steam
 
             if (IsServer && !destroyed)
             {
+                SteamManager.OnServerStart -= SteamManager_OnServerStart;
                 SteamManager.DestroyObject(this);
                 destroyed = true;
             }

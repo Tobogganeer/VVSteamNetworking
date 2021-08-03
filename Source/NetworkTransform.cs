@@ -11,7 +11,7 @@ namespace VirtualVoid.Networking.Steam
         [Tooltip("Should the NetworkTransform try to sync every FixedUpdate?")]
         public bool syncWithFixedUpdate;
         [Min(0f)]
-        [Tooltip("If not syncing with FixedUpdate, try to sync after this amount of time. 0 for instant (not recommended).")]
+        [Tooltip("If not syncing with FixedUpdate, try to sync after this amount of time. 0 for every frame (not recommended).")]
         public float syncTime = 0.1f;
         public NetworkTransformSettings settings;
 
@@ -226,13 +226,53 @@ namespace VirtualVoid.Networking.Steam
         [System.Flags]
         internal enum TransformUpdateFlags : byte
         {
-            NONE = 0,
-            POSITION = 1 << 0,
-            ROTATION = 1 << 1,
-            SCALE = 1 << 2,
+            NONE        = 0,
+            POSITION    = 1 << 0,
+            ROTATION    = 1 << 1,
+            SCALE       = 1 << 2,
+            PARENT      = 1 << 3
+                // This probably does not have to be flags
         }
 
         // (targetEnum & Enum.Value) == Enum.Value
         // targetEnum.HasFlag(Enum.Value)
+
+
+        public void SetParentNet(NetworkID networkID)
+        {
+            if (!IsServer) return;
+
+            if (networkID == null)
+            {
+                transform.SetParent(null);
+                SteamManager.SendMessageToAllClients(Message.CreateInternal(P2PSend.Reliable, (ushort)InternalServerMessageIDs.NETWORK_TRANSFORM)
+                    .Add((byte)TransformUpdateFlags.PARENT).Add(this.networkID).Add(0u));
+            }
+            else
+            {
+                transform.SetParent(networkID.transform);
+                SteamManager.SendMessageToAllClients(Message.CreateInternal(P2PSend.Reliable, (ushort)InternalServerMessageIDs.NETWORK_TRANSFORM)
+                    .Add((byte)TransformUpdateFlags.PARENT).Add(this.networkID).Add(networkID));
+            }
+        }
+
+        public void SetParent(Transform transform)
+        {
+            if (!IsServer) return;
+
+            if (transform == null)
+            {
+                SetParentNet(null);
+                return;
+            }
+
+            if (!transform.TryGetComponent(out NetworkID networkID))
+            {
+                Debug.LogWarning($"Tried to change parent of {name}, but the new parent ({transform.name}) does not have a NetworkID component!");
+                return;
+            }
+
+            SetParentNet(networkID);
+        }
     }
 }
