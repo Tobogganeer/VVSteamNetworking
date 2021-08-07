@@ -136,7 +136,13 @@ namespace VirtualVoid.Networking.Steam.LLAPI
                     Debug.Log("Tried to assign netID to scene object, but no scene object with ID " + spawnMessage.sceneID + " was in the dictionary!");
                     return;
                 }
+                if (sceneNetID == null)
+                {
+
+                }
+
                 sceneNetID.netID = spawnMessage.netID;
+                Debug.Log($"Set {sceneNetID.name} netID to {spawnMessage.netID}");
                 NetworkID.networkIDs[spawnMessage.netID] = sceneNetID;
             }
             else if (spawnMessage.objType == NetworkObjectType.RUNTIME_OBJECT)
@@ -232,6 +238,8 @@ namespace VirtualVoid.Networking.Steam.LLAPI
 
         private static void OnNetworkAnimator(Message message)
         {
+            if (SteamManager.IsServer) return;
+
             NetworkAnimator anim = message.GetNetworkBehavior<NetworkAnimator>();
             //NetworkAnimator anim = message.GetNetworkBehavior<NetworkAnimator>();
 

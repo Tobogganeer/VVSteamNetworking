@@ -139,6 +139,7 @@ namespace VirtualVoid.Networking.Steam
         // Constants
         private const string LOBBY_SERVER_VERSION = "server_version";
         internal const ushort PUBLIC_MESSAGE_BUFFER_SIZE = 2048;
+        private const bool DONT_COUNT_NETSTATS_IF_SENDING_TO_SELF = false;
 
         // Allocation Reduction
         internal static byte[] tempMessageByteBuffer = new byte[PUBLIC_MESSAGE_BUFFER_SIZE];
@@ -166,6 +167,7 @@ namespace VirtualVoid.Networking.Steam
                     {
                         foreach (NetworkID networkID in NetworkID.networkIDs.Values)
                         {
+                            Debug.LogError($"Spawned {networkID.name} on {friend.Name}'s client");
                             SpawnObject(networkID, friend.Id);
                         }
                     }
@@ -644,9 +646,13 @@ namespace VirtualVoid.Networking.Steam
         #region Send
         public static void SendMessageToServer(Message message)
         {
-            if (!IsServer)
+            if (!IsServer || !DONT_COUNT_NETSTATS_IF_SENDING_TO_SELF)
             {
                 NetStats.OnPacketSent(message.WrittenLength);
+            }
+
+            if (!IsServer)
+            {
                 SteamNetworking.SendP2PPacket(ServerID, message.Bytes, message.WrittenLength, (int)P2PMessageChannels.SERVER, message.SendType);
             }
             else
@@ -670,9 +676,13 @@ namespace VirtualVoid.Networking.Steam
                 return;
             }
 
-            if (id != SteamID)
+            if (id != SteamID || !DONT_COUNT_NETSTATS_IF_SENDING_TO_SELF)
             {
                 NetStats.OnPacketSent(message.WrittenLength);
+            }
+
+            if (id != SteamID)
+            {
                 SteamNetworking.SendP2PPacket(id, message.Bytes, message.WrittenLength, (int)P2PMessageChannels.CLIENT, message.SendType);
             }
             else
@@ -709,7 +719,7 @@ namespace VirtualVoid.Networking.Steam
                 return;
             }
 
-            if (fromId != SteamID)
+            if (fromId != SteamID || !DONT_COUNT_NETSTATS_IF_SENDING_TO_SELF)
                 NetStats.OnPacketReceived(message.WrittenLength);
 
             ushort id = message.GetUShort();
@@ -734,7 +744,7 @@ namespace VirtualVoid.Networking.Steam
 
         private static void HandleDataFromClient(Message message, SteamId fromClient)
         {
-            if (fromClient != SteamID)
+            if (fromClient != SteamID || !DONT_COUNT_NETSTATS_IF_SENDING_TO_SELF)
                 NetStats.OnPacketReceived(message.WrittenLength);
 
             if (serverShuttingDown) return;
@@ -1105,14 +1115,13 @@ namespace VirtualVoid.Networking.Steam
             {
                 if (networkID != null && networkID.sceneID == 0)
                 {
-                    netIDsToDestroy[numNetworkIDsToDestroy] = networkID.netID;
-                    numNetworkIDsToDestroy++;
+                    netIDsToDestroy[numNetworkIDsToDestroy++] = networkID.netID;
                 }
             }
 
             for (uint i = 0; i < numNetworkIDsToDestroy; i++)
             {
-                NetworkID networkID = NetworkID.networkIDs[i];
+                NetworkID networkID = NetworkID.networkIDs[netIDsToDestroy[i]];
                 if (networkID != null)
                 {
                     Debug.Log("Destroying NetworkID " + networkID.name);

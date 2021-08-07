@@ -7,7 +7,8 @@ namespace VirtualVoid.Networking.Steam.LLAPI
         PING = 2560,
         DISCONNECTED = 2561,
         SCENE_LOADED = 2562,
-        NETWORK_BEHAVIOR_COMMAND = 2563
+        NETWORK_BEHAVIOR_COMMAND = 2563,
+        CLIENT_ID = 2580
     }
 
     // VVV Sent by server
@@ -20,6 +21,7 @@ namespace VirtualVoid.Networking.Steam.LLAPI
         DESTROY_NETWORK_ID = 2564,
         NETWORK_TRANSFORM = 2565,
         NETWORK_ANIMATOR = 2566,
-        NETWORK_BEHAVIOR_RPC = 2567
+        NETWORK_BEHAVIOR_RPC = 2567,
+        CLIENT_ID = 2580
     }
 }

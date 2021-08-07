@@ -26,12 +26,13 @@ namespace VirtualVoid.Networking.Steam
         private static readonly System.Diagnostics.Stopwatch pingTimer = new System.Diagnostics.Stopwatch();
         private static readonly List<long> pings = new List<long>(MAX_PINGS);
         private const byte MAX_PINGS = 5;
+        private const float UPDATE_RATE = 1;
 
         public bool uiEnabled = true;
 
         private void OnEnable()
         {
-            InvokeRepeating(nameof(SlowUpdate), 1f, 3f);
+            InvokeRepeating(nameof(SlowUpdate), 1f, UPDATE_RATE);
         }
 
         private void OnDisable()
@@ -82,7 +83,7 @@ namespace VirtualVoid.Networking.Steam
             BytesSent += size;
             PacketsSent++;
 
-            instance?.UpdateUI();
+            //instance?.UpdateUI();
         }
 
         public static void OnPacketReceived(int size)
@@ -90,7 +91,7 @@ namespace VirtualVoid.Networking.Steam
             BytesReceived += size;
             PacketsReceived++;
 
-            instance?.UpdateUI();
+            //instance?.UpdateUI();
         }
 
         private void UpdateUI()
@@ -100,10 +101,10 @@ namespace VirtualVoid.Networking.Steam
             try
             {
                 pingText.text = "Ping: " + Math.Round(Ping).ToString() + "ms";
-                packetsDownText.text = "Packets Down: " + PacketsReceived;
-                packetsUpText.text = "Packets Up: " + PacketsSent;
-                bytesDownText.text = "Bytes Down: " + BytesReceived;
-                bytesUpText.text = "Bytes Up: " + BytesSent;
+                packetsDownText.text = "Packets Down: " + PacketsReceived / UPDATE_RATE;
+                packetsUpText.text = "Packets Up: " + PacketsSent / UPDATE_RATE;
+                bytesDownText.text = "Bytes Down: " + BytesReceived / UPDATE_RATE;
+                bytesUpText.text = "Bytes Up: " + BytesSent / UPDATE_RATE;
             }
             catch
             {

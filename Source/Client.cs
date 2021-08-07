@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using Steamworks;
+using VirtualVoid.Networking.Steam.LLAPI;
 
 namespace VirtualVoid.Networking.Steam
 {
@@ -15,10 +16,20 @@ namespace VirtualVoid.Networking.Steam
         /// The SteamID of this client. Will not be assigned in Awake() or OnEnable().
         /// </summary>
         public SteamId SteamID { get; private set; }
+        public static Client LocalClient { get; private set; }
         public string SteamName { get; private set; }
         public bool sceneLoaded { get; internal set; } = true;
 
         private bool destroyed = false;
+
+        private void Start()
+        {
+            if (IsServer) return;
+
+            SendCommand(Message.CreateInternal(P2PSend.Reliable, (ushort)InternalClientMessageIDs.CLIENT_ID));
+        }
+
+        
 
         internal static Client Create(SteamId steamID)
         {
@@ -33,6 +44,7 @@ namespace VirtualVoid.Networking.Steam
 
             client.SteamID = steamID;
             client.SteamName = new Friend(steamID).Name;
+            if (client.IsLocalPlayer) LocalClient = client;
 
             //Client client = new Client { SteamID = steamID, Name = new Friend(steamID).Name };
             //client.SteamID = steamID;
@@ -46,6 +58,12 @@ namespace VirtualVoid.Networking.Steam
 
         protected internal sealed override void OnCommandReceived(SteamId from, Message message, ushort messageID)
         {
+            if (messageID == (ushort)InternalClientMessageIDs.CLIENT_ID)
+            {
+                SendRPC(Message.CreateInternal(P2PSend.Reliable, (ushort)InternalServerMessageIDs.CLIENT_ID).Add(SteamID), from);
+                return;
+            }
+
             if (from != SteamID)
             {
                 Debug.LogWarning("Player " + name + " received command from " + new Friend(from).Name + ", but players can only receive commands from themselves!");
@@ -53,6 +71,22 @@ namespace VirtualVoid.Networking.Steam
             }
 
             OnCommandReceived(message, messageID);
+        }
+
+        /// <summary>
+        /// If you override this method, call base.OnRPCReceived()!
+        /// </summary>
+        /// <param name="message"></param>
+        /// <param name="messageID"></param>
+        protected internal override void OnRPCReceived(Message message, ushort messageID)
+        {
+            if (messageID == (ushort)InternalServerMessageIDs.CLIENT_ID)
+            {
+                SteamID = message.GetSteamId();
+                SteamName = new Friend(SteamID).Name;
+                if (IsLocalPlayer) LocalClient = this;
+                return;
+            }
         }
 
         protected virtual void OnCommandReceived(Message message, ushort messageID) { }

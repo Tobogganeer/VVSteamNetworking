@@ -13,6 +13,7 @@ namespace VirtualVoid.Networking.Steam
     // Most of this code is ripped straight from Mirror. https://github.com/vis2k/Mirror
     // The people working on it are smarter than I am and they have figured out all this complex stuff so :/
 
+    [DisallowMultipleComponent]
     public class NetworkID : MonoBehaviour
     {
         private bool copyOfSceneObj;

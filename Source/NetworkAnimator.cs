@@ -76,7 +76,7 @@ namespace VirtualVoid.Networking.Steam
 
         internal void OnCommandsReceived(Message message)
         {
-            Debug.Log("Received Animation Message of size " + message.WrittenLength);
+            //Debug.Log("Received Animation Message of size " + message.WrittenLength);
 
             if (IsServer) return;
 
