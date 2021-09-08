@@ -2,16 +2,19 @@
 using System.Collections.Generic;
 using UnityEngine;
 using Steamworks;
-using VirtualVoid.Networking.Steam.LLAPI;
 
 namespace VirtualVoid.Networking.Steam
 {
-    public class Client : NetworkBehavior
+    [DisallowMultipleComponent]
+    public class Client : NetworkBehaviour
     {
+        [Header("Can leave null if not using built in voice chat.")]
+        public VoiceOutput voiceOutput;
+
         /// <summary>
         /// Is this client the local client. Will not be assigned in Awake() or OnEnable().
         /// </summary>
-        public bool IsLocalPlayer => SteamID == SteamManager.SteamID;
+        public bool IsLocalClient => SteamID == SteamManager.SteamID;
         /// <summary>
         /// The SteamID of this client. Will not be assigned in Awake() or OnEnable().
         /// </summary>
@@ -19,17 +22,64 @@ namespace VirtualVoid.Networking.Steam
         public static Client LocalClient { get; private set; }
         public string SteamName { get; private set; }
         public bool sceneLoaded { get; internal set; } = true;
+        public uint netID => networkID.netID;
 
         private bool destroyed = false;
 
-        private void Start()
+        private new void Awake()
         {
-            if (IsServer) return;
-
-            SendCommand(Message.CreateInternal(P2PSend.Reliable, (ushort)InternalClientMessageIDs.CLIENT_ID));
+            DontDestroyOnLoad(gameObject);
         }
 
-        
+        protected internal sealed override void AddSpawnData(Message message)
+        {
+            message.Add(SteamID);
+
+            try
+            {
+                _AddSpawnData(message);
+            }
+            catch
+            {
+                throw;
+            }
+        }
+
+        protected virtual void _AddSpawnData(Message message)
+        {
+
+        }
+
+        protected internal sealed override void GetSpawnData(Message message)
+        {
+            SteamID = message.GetSteamId();
+            SteamName = new Friend(SteamID).Name;
+            SteamManager.clients[SteamID] = this;
+            if (IsLocalClient) LocalClient = this;
+
+            try
+            {
+                _GetSpawnData(message);
+            }
+            catch
+            {
+                throw;
+            }
+        }
+
+        protected virtual void _GetSpawnData(Message message)
+        {
+
+        }
+
+        //private void Start()
+        //{
+        //    if (IsServer) return;
+        //
+        //    SendCommand(Message.CreateInternal(P2PSend.Reliable, (ushort)InternalClientMessageIDs.CLIENT_ID));
+        //}
+
+
 
         internal static Client Create(SteamId steamID)
         {
@@ -37,14 +87,14 @@ namespace VirtualVoid.Networking.Steam
 
             if (SteamManager.PlayerPrefab == null)
             {
-                Debug.LogError("Please assign a proper PlayerPrefab to your SteamManager instance!");
+                Debug.LogWarning("Please assign a proper PlayerPrefab to your SteamManager instance!");
                 client = new GameObject("Temp Player").AddComponent<Client>();
             }
             else client = Instantiate(SteamManager.PlayerPrefab).GetComponent<Client>();
 
             client.SteamID = steamID;
             client.SteamName = new Friend(steamID).Name;
-            if (client.IsLocalPlayer) LocalClient = client;
+            if (client.IsLocalClient) LocalClient = client;
 
             //Client client = new Client { SteamID = steamID, Name = new Friend(steamID).Name };
             //client.SteamID = steamID;
@@ -54,6 +104,11 @@ namespace VirtualVoid.Networking.Steam
 
             SteamManager.clients[steamID] = client;
             return client;
+        }
+
+        public override void SendCommand(Message message)
+        {
+            InternalClientMessages.SendClientCommand(this, message);
         }
 
         protected internal sealed override void OnCommandReceived(SteamId from, Message message, ushort messageID)
@@ -73,23 +128,19 @@ namespace VirtualVoid.Networking.Steam
             OnCommandReceived(message, messageID);
         }
 
-        /// <summary>
-        /// If you override this method, call base.OnRPCReceived()!
-        /// </summary>
-        /// <param name="message"></param>
-        /// <param name="messageID"></param>
         protected internal override void OnRPCReceived(Message message, ushort messageID)
         {
-            if (messageID == (ushort)InternalServerMessageIDs.CLIENT_ID)
-            {
-                SteamID = message.GetSteamId();
-                SteamName = new Friend(SteamID).Name;
-                if (IsLocalPlayer) LocalClient = this;
-                return;
-            }
+            //if (messageID == (ushort)InternalServerMessageIDs.CLIENT_ID)
+            //{
+            //    SteamID = message.GetSteamId();
+            //    SteamName = new Friend(SteamID).Name;
+            //    SteamManager.clients[SteamID] = this;
+            //    if (IsLocalPlayer) LocalClient = this;
+            //    return;
+            //}
         }
 
-        protected virtual void OnCommandReceived(Message message, ushort messageID) { }
+        protected internal virtual void OnCommandReceived(Message message, ushort messageID) { }
 
         internal void Destroy()
         {

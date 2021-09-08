@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using VirtualVoid.Networking.Steam.LLAPI;
 using System.Linq;
 using UnityEngine.UI;
 using System;
@@ -26,13 +25,29 @@ namespace VirtualVoid.Networking.Steam
         private static readonly System.Diagnostics.Stopwatch pingTimer = new System.Diagnostics.Stopwatch();
         private static readonly List<long> pings = new List<long>(MAX_PINGS);
         private const byte MAX_PINGS = 5;
-        private const float UPDATE_RATE = 1;
+        public float secondsPerUpdate = 1;
+        private float oldSecondsPerUpdate;
 
         public bool uiEnabled = true;
 
+        private void Start()
+        {
+            oldSecondsPerUpdate = secondsPerUpdate;
+        }
+
+        private void Update()
+        {
+            if (oldSecondsPerUpdate != secondsPerUpdate)
+            {
+                oldSecondsPerUpdate = secondsPerUpdate;
+                CancelInvoke();
+                InvokeRepeating(nameof(SlowUpdate), 1f, secondsPerUpdate);
+            }
+        }
+
         private void OnEnable()
         {
-            InvokeRepeating(nameof(SlowUpdate), 1f, UPDATE_RATE);
+            InvokeRepeating(nameof(SlowUpdate), 1f, secondsPerUpdate);
         }
 
         private void OnDisable()
@@ -43,6 +58,8 @@ namespace VirtualVoid.Networking.Steam
         private void SlowUpdate()
         {
             pingTimer.Start();
+            if (!SteamManager.ConnectedToServer) return;
+
             InternalClientMessages.SendPing();
 
             UpdateUI();
@@ -101,10 +118,10 @@ namespace VirtualVoid.Networking.Steam
             try
             {
                 pingText.text = "Ping: " + Math.Round(Ping).ToString() + "ms";
-                packetsDownText.text = "Packets Down: " + PacketsReceived / UPDATE_RATE;
-                packetsUpText.text = "Packets Up: " + PacketsSent / UPDATE_RATE;
-                bytesDownText.text = "Bytes Down: " + BytesReceived / UPDATE_RATE;
-                bytesUpText.text = "Bytes Up: " + BytesSent / UPDATE_RATE;
+                packetsDownText.text = "Packets Down: " + PacketsReceived / secondsPerUpdate;
+                packetsUpText.text = "Packets Up: " + PacketsSent / secondsPerUpdate;
+                bytesDownText.text = "Bytes Down: " + BytesReceived / secondsPerUpdate;
+                bytesUpText.text = "Bytes Up: " + BytesSent / secondsPerUpdate;
             }
             catch
             {

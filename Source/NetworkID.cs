@@ -6,7 +6,6 @@ using UnityEngine;
 using UnityEditor;
 using UnityEditor.Experimental.SceneManagement;
 #endif
-using VirtualVoid.Networking.Steam.LLAPI;
 
 namespace VirtualVoid.Networking.Steam
 {
@@ -16,6 +15,12 @@ namespace VirtualVoid.Networking.Steam
     [DisallowMultipleComponent]
     public class NetworkID : MonoBehaviour
     {
+        [SerializeField]
+        [Tooltip("If enabled, NetworkBehaviours can add to the spawn data. Causes _netBehaviors to be loaded.")]
+        private bool useSpawnData = true;
+
+        internal bool UseSpawnData => useSpawnData;
+
         private bool copyOfSceneObj;
         [SerializeField, HideInInspector] private bool hasSpawned;
         public uint netID; //{ get; private set; }
@@ -26,15 +31,15 @@ namespace VirtualVoid.Networking.Steam
         internal static readonly Dictionary<uint, NetworkID> networkIDs = new Dictionary<uint, NetworkID>();
         internal static readonly Dictionary<uint, NetworkID> sceneIDs = new Dictionary<uint, NetworkID>();
 
-        private NetworkBehavior[] _netBehaviors;
+        private NetworkBehaviour[] _netBehaviors;
 
-        public NetworkBehavior[] netBehaviors
+        public NetworkBehaviour[] netBehaviors
         {
             get
             {
                 if (_netBehaviors == null)
                 {
-                    _netBehaviors = GetComponents<NetworkBehavior>();
+                    _netBehaviors = GetComponents<NetworkBehaviour>();
 
                     if (_netBehaviors.Length > byte.MaxValue)
                         throw new IndexOutOfRangeException($"Cannot have more than {byte.MaxValue} NetworkBehaviors on one gameobject! (" + name + ")");

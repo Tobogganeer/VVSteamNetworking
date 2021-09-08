@@ -1,17 +1,21 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using VirtualVoid.Networking.Steam.LLAPI;
 
 namespace VirtualVoid.Networking.Steam
 {
-    public class NetworkAnimator : NetworkBehavior
+    public class NetworkAnimator : NetworkBehaviour
     {
-        [Tooltip("Should the NetworkAnimator try to sync every FixedUpdate?")]
-        public bool syncWithFixedUpdate;
+        [Tooltip("When should this try to sync?")]
+        public SyncUpdateLoop updateLoop;
+
+        private bool syncsWithFixedUpdate => updateLoop == SyncUpdateLoop.FixedUpdate;
+
         [Min(0f)]
-        [Tooltip("If not syncing with FixedUpdate, try to sync after this amount of time. 0 for every frame (not recommended).")]
-        public float syncTime = 0.1f;
+        [Tooltip("If not syncing with FixedUpdate, try to sync this many times per second. 0 for every frame (not recommended).")]
+        public int syncsPerSecond = 0;
+        private int lastSyncsPerSecond = 0;
+        private float syncTime = 0.1f;
         public Animator target;
         //public NetworkAnimatorSettings settings;
 
@@ -25,10 +29,35 @@ namespace VirtualVoid.Networking.Steam
 
         // This entire class smells of unoptimization, 20 buffers?
 
+        private void Start()
+        {
+            if (syncsPerSecond == 0) syncTime = 0; // Avoid division by zero
+            else syncTime = 1f / syncsPerSecond;
+        }
+
         private void Update()
         {
-            if (syncWithFixedUpdate) return;
+            if (syncsPerSecond != lastSyncsPerSecond)
+            {
+                lastSyncsPerSecond = syncsPerSecond;
+                if (syncsPerSecond == 0) syncTime = 0; // Avoid division by zero
+                else syncTime = 1f / syncsPerSecond;
+            }
 
+            if (updateLoop != SyncUpdateLoop.Update) return;
+
+            UpdateTimesForFrameUpdate();
+        }
+
+        private void LateUpdate()
+        {
+            if (updateLoop != SyncUpdateLoop.LateUpdate) return;
+
+            UpdateTimesForFrameUpdate();
+        }
+
+        private void UpdateTimesForFrameUpdate()
+        {
             if (SteamManager.IsServer && Time.time - lastSyncTime > syncTime)
             {
                 lastSyncTime = Time.time;
@@ -38,7 +67,7 @@ namespace VirtualVoid.Networking.Steam
 
         private void FixedUpdate()
         {
-            if (!syncWithFixedUpdate) return;
+            if (updateLoop != SyncUpdateLoop.FixedUpdate) return;
 
             SendCachedCommands();
         }
@@ -50,7 +79,7 @@ namespace VirtualVoid.Networking.Steam
 
             if (numCommands == 0) return;
 
-            Message message = Message.CreateInternal(Steamworks.P2PSend.Reliable, (ushort)InternalServerMessageIDs.NETWORK_ANIMATOR);
+            Message message = Message.CreateInternal(Steamworks.P2PSend.ReliableWithBuffering, (ushort)InternalServerMessageIDs.NETWORK_ANIMATOR);
             message.Add(this);
             message.Add(numCommands);
 

@@ -4,7 +4,6 @@ using UnityEngine;
 using Steamworks;
 using Steamworks.Data;
 using System;
-using VirtualVoid.Networking.Steam.LLAPI;
 using System.Threading.Tasks;
 
 namespace VirtualVoid.Networking.Steam
@@ -26,17 +25,31 @@ namespace VirtualVoid.Networking.Steam
                 return;
             }
 
-            SteamClient.Init(appID, false);
+            try
+            {
+                SteamClient.Init(appID, false);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("Couldn't log onto steam! " + ex);
+                return;
+            }
             SteamNetworkingUtils.InitRelayNetworkAccess();
 
             InitSteamEvents();
             InternalMessages.Initialize();
+            if (SteamClient.IsValid)
+            {
+                Debug.Log($"Successfully logged into steam as {SteamName} ({SteamID})");
+            }
 
             if (tickRate > 0)
             {
                 Time.fixedDeltaTime = 1f / tickRate;
                 Debug.Log($"Set physics tickrate to {tickRate} ticks per second ({Time.fixedDeltaTime}s per physics update).");
             }
+
+            TryRegisterSpawnablePrefab(playerPrefab.gameObject);
 
             foreach (GameObject obj in spawnablePrefabs)
             {
@@ -83,8 +96,12 @@ namespace VirtualVoid.Networking.Steam
             }
         }
 
+        public static string SteamName => new Friend(SteamID).Name;
+
         public static SteamId ServerID { get; private set; }
+        public static bool ConnectedToServer => ServerID.IsValid;
         public static bool IsServer => SteamID == ServerID;
+        public static int ClientCount => clients.Count;
 
         private static bool serverShuttingDown = false;
 
@@ -646,6 +663,12 @@ namespace VirtualVoid.Networking.Steam
         #region Send
         public static void SendMessageToServer(Message message)
         {
+            if (!ConnectedToServer)
+            {
+                Debug.LogWarning("Tried to send message to server, but ID is invalid! (Are you connected to a server?)");
+                return;
+            }
+
             if (!IsServer || !DONT_COUNT_NETSTATS_IF_SENDING_TO_SELF)
             {
                 NetStats.OnPacketSent(message.WrittenLength);
@@ -829,16 +852,16 @@ namespace VirtualVoid.Networking.Steam
         /// </summary>
         /// <param name="messageID">The message ID that will be listened for.</param>
         /// <param name="callback">The callback to invoke when an internal message with ID <paramref name="messageID"/> is received.</param>
-        public static void RegisterInternalMessageHandler_FromClient(ushort messageID, ClientMessageCallback callback)
+        internal static void RegisterInternalMessageHandler_FromClient(InternalClientMessageIDs messageID, ClientMessageCallback callback)
         {
-            if (!Message.IsInternalMessage(messageID))
+            if (!Message.IsInternalMessage((ushort)messageID))
             {
                 Debug.LogWarning($"Tried to register an internal ClientMessageCallback with ID of {messageID}, but that ID is not used internally!");
                 return;
             }
 
-            if (!internalMessagesFromClientCallbacks.ContainsKey(messageID)) internalMessagesFromClientCallbacks.Add(messageID, callback);
-            else internalMessagesFromClientCallbacks[messageID] += callback;
+            if (!internalMessagesFromClientCallbacks.ContainsKey((ushort)messageID)) internalMessagesFromClientCallbacks.Add((ushort)messageID, callback);
+            else internalMessagesFromClientCallbacks[(ushort)messageID] += callback;
         }
 
         /// <summary>
@@ -847,16 +870,16 @@ namespace VirtualVoid.Networking.Steam
         /// </summary>
         /// <param name="messageID">The message ID that will be listened for.</param>
         /// <param name="callback">The callback to invoke when an internal message with ID <paramref name="messageID"/> is received.</param>
-        public static void RegisterInternalMessageHandler_FromServer(ushort messageID, MessageCallback callback)
+        internal static void RegisterInternalMessageHandler_FromServer(InternalServerMessageIDs messageID, MessageCallback callback)
         {
-            if (!Message.IsInternalMessage(messageID))
+            if (!Message.IsInternalMessage((ushort)messageID))
             {
                 Debug.LogWarning($"Tried to register an internal ServerMessageCallback with ID of {messageID}, but that ID is not used internally!");
                 return;
             }
 
-            if (!internalMessagesFromServerCallbacks.ContainsKey(messageID)) internalMessagesFromServerCallbacks.Add(messageID, callback);
-            else internalMessagesFromServerCallbacks[messageID] += callback;
+            if (!internalMessagesFromServerCallbacks.ContainsKey((ushort)messageID)) internalMessagesFromServerCallbacks.Add((ushort)messageID, callback);
+            else internalMessagesFromServerCallbacks[(ushort)messageID] += callback;
         }
         #endregion
 
@@ -889,26 +912,26 @@ namespace VirtualVoid.Networking.Steam
         #endregion
 
         #region Internal Messages
-        public static void DeregisterInternalMessageHandler_FromClient(ushort messageID, ClientMessageCallback callback)
+        internal static void DeregisterInternalMessageHandler_FromClient(InternalClientMessageIDs messageID, ClientMessageCallback callback)
         {
-            if (!Message.IsInternalMessage(messageID))
+            if (!Message.IsInternalMessage((ushort)messageID))
             {
                 Debug.LogWarning($"Tried to deregister an internal ClientMessageCallback with ID of {messageID}, but that ID is not used internally!");
                 return;
             }
 
-            if (internalMessagesFromClientCallbacks.ContainsKey(messageID)) internalMessagesFromClientCallbacks[messageID] -= callback;
+            if (internalMessagesFromClientCallbacks.ContainsKey((ushort)messageID)) internalMessagesFromClientCallbacks[(ushort)messageID] -= callback;
         }
 
-        public static void DeregisterInternalMessageHandler_FromServer(ushort messageID, MessageCallback callback)
+        internal static void DeregisterInternalMessageHandler_FromServer(InternalServerMessageIDs messageID, MessageCallback callback)
         {
-            if (!Message.IsInternalMessage(messageID))
+            if (!Message.IsInternalMessage((ushort)messageID))
             {
                 Debug.LogWarning($"Tried to deregister an internal ServerMessageCallback with ID of {messageID}, but that ID is not used internally!");
                 return;
             }
 
-            if (internalMessagesFromServerCallbacks.ContainsKey(messageID)) internalMessagesFromServerCallbacks[messageID] -= callback;
+            if (internalMessagesFromServerCallbacks.ContainsKey((ushort)messageID)) internalMessagesFromServerCallbacks[(ushort)messageID] -= callback;
         }
         #endregion
 
@@ -934,8 +957,8 @@ namespace VirtualVoid.Networking.Steam
 
             OnClientDisconnect?.Invoke(clientID);
 
-            if (clients[clientID] != null)
-                clients[clientID].Destroy();
+            if (clients.TryGetValue(clientID, out Client client))
+                client.Destroy();
 
             SteamNetworking.CloseP2PSessionWithUser(clientID);
         }
@@ -1128,6 +1151,8 @@ namespace VirtualVoid.Networking.Steam
                     Destroy(networkID.gameObject);
                 }
             }
+
+            NetworkID.ResetNetIDs();
         }
         #endregion
     }

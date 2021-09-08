@@ -1,5 +1,5 @@
 
-namespace VirtualVoid.Networking.Steam.LLAPI
+namespace VirtualVoid.Networking.Steam
 {
     // VVV Sent by client
     internal enum InternalClientMessageIDs : ushort // 2560 - 2585
@@ -8,6 +8,8 @@ namespace VirtualVoid.Networking.Steam.LLAPI
         DISCONNECTED = 2561,
         SCENE_LOADED = 2562,
         NETWORK_BEHAVIOR_COMMAND = 2563,
+        CLIENT_COMMAND = 2564,
+        SEND_VOICE = 2565,
         CLIENT_ID = 2580
     }
 
@@ -22,6 +24,7 @@ namespace VirtualVoid.Networking.Steam.LLAPI
         NETWORK_TRANSFORM = 2565,
         NETWORK_ANIMATOR = 2566,
         NETWORK_BEHAVIOR_RPC = 2567,
+        BOUNCE_VOICE = 2568,
         CLIENT_ID = 2580
     }
 }

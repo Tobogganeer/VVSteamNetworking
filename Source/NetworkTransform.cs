@@ -2,17 +2,21 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Steamworks;
-using VirtualVoid.Networking.Steam.LLAPI;
 
 namespace VirtualVoid.Networking.Steam
 {
-    public class NetworkTransform : NetworkBehavior
+    public class NetworkTransform : NetworkBehaviour
     {
-        [Tooltip("Should the NetworkTransform try to sync every FixedUpdate?")]
-        public bool syncWithFixedUpdate;
+        [Tooltip("When should this try to sync?")]
+        public SyncUpdateLoop updateLoop;
+
+        private bool syncsWithFixedUpdate => updateLoop == SyncUpdateLoop.FixedUpdate;
+
         [Min(0f)]
-        [Tooltip("If not syncing with FixedUpdate, try to sync after this amount of time. 0 for every frame (not recommended).")]
-        public float syncTime = 0.1f;
+        [Tooltip("If not syncing with FixedUpdate, try to sync this many times per second. 0 for every frame (not recommended).")]
+        public int syncsPerSecond = 0;
+        private int lastSyncsPerSecond = 0;
+        private float syncTime = 0.1f;
         public NetworkTransformSettings settings;
 
         internal Vector3 lastPosition = Vector3.zero;
@@ -20,7 +24,7 @@ namespace VirtualVoid.Networking.Steam
         internal Vector3 lastScale = Vector3.one;
         private float lastSyncTime = 0;
 
-        private float syncDelay => syncWithFixedUpdate ? Time.fixedDeltaTime : syncTime;
+        private float syncDelay => syncsWithFixedUpdate ? Time.fixedDeltaTime : syncTime;
         private float currentInterpolation
         {
             get
@@ -29,6 +33,7 @@ namespace VirtualVoid.Networking.Steam
 
                 float elapsed = Time.time - target.time;
                 return difference > 0 ? elapsed / difference : 0;
+                // Thanks mirror for this useful bit of code
             }
         }
 
@@ -39,8 +44,11 @@ namespace VirtualVoid.Networking.Steam
 
         private void Start()
         {
-            lastPosition = settings.useGlobalPosition ? transform.position : transform.localPosition;
-            lastRotation = settings.useGlobalRotation ? transform.rotation : transform.localRotation;
+            if (syncsPerSecond == 0) syncTime = 0; // Avoid division by zero
+            else syncTime = 1f / syncsPerSecond;
+
+            lastPosition = settings.position.useGlobal ? transform.position : transform.localPosition;
+            lastRotation = settings.rotation.useGlobal ? transform.rotation : transform.localRotation;
             lastScale = transform.localScale;
 
             current.Update(lastPosition, lastRotation, lastScale, Time.time - syncDelay);
@@ -49,8 +57,28 @@ namespace VirtualVoid.Networking.Steam
 
         private void Update()
         {
-            if (syncWithFixedUpdate) return;
+            if (syncsPerSecond != lastSyncsPerSecond)
+            {
+                lastSyncsPerSecond = syncsPerSecond;
+                if (syncsPerSecond == 0) syncTime = 0; // Avoid division by zero
+                else syncTime = 1f / syncsPerSecond;
+            }
 
+            if (updateLoop != SyncUpdateLoop.Update) return;
+
+            TransformStuffForFrameUpdates();
+        }
+
+        private void LateUpdate()
+        {
+            if (updateLoop != SyncUpdateLoop.LateUpdate) return;
+
+            TransformStuffForFrameUpdates();
+        }
+
+        // Not a super useful name. Function just so in LateUpdate and Update I dont write the same crap twice
+        private void TransformStuffForFrameUpdates()
+        {
             if (SteamManager.IsServer && Time.time - lastSyncTime > syncTime)
             {
                 lastSyncTime = Time.time;
@@ -62,7 +90,7 @@ namespace VirtualVoid.Networking.Steam
 
         private void FixedUpdate()
         {
-            if (!syncWithFixedUpdate) return;
+            if (updateLoop != SyncUpdateLoop.FixedUpdate) return;
 
             CheckTransform();
             UpdateTransform();
@@ -74,13 +102,13 @@ namespace VirtualVoid.Networking.Steam
 
             TransformUpdateFlags flags = TransformUpdateFlags.NONE;
 
-            if (settings.syncPosition && HasMoved())
+            if (settings.position.sync && HasMoved())
                 flags |= TransformUpdateFlags.POSITION;
 
-            if (settings.syncRotation && HasRotated())
+            if (settings.rotation.sync && HasRotated())
                 flags |= TransformUpdateFlags.ROTATION;
 
-            if (settings.syncScale && HasScaled())
+            if (settings.scale.sync && HasScaled())
                 flags |= TransformUpdateFlags.SCALE;
 
             //Debug.Log(flags.ToString()); Works correctly
@@ -103,45 +131,45 @@ namespace VirtualVoid.Networking.Steam
             if (SteamManager.IsServer) return;
 
             // Interpolate / Snap
-            if (settings.syncPosition)
+            if (settings.position.sync)
             {
-                if (settings.interpolatePosition)
+                if (settings.position.interpolate)
                 {
-                    if (settings.useGlobalPosition)
+                    if (settings.position.useGlobal)
                         transform.position = Vector3.Lerp(current.position, target.position, currentInterpolation);
                     else
                         transform.localPosition = Vector3.Lerp(current.position, target.position, currentInterpolation);
                 }
                 else
                 {
-                    if (settings.useGlobalPosition)
+                    if (settings.position.useGlobal)
                         transform.position = target.position;
                     else
                         transform.localPosition = target.position;
                 }
             }
 
-            if (settings.syncRotation)
+            if (settings.rotation.sync)
             {
-                if (settings.interpolateRotation)
+                if (settings.rotation.interpolate)
                 {
-                    if (settings.useGlobalRotation)
+                    if (settings.rotation.useGlobal)
                         transform.rotation = Quaternion.Slerp(current.rotation, target.rotation, currentInterpolation);
                     else
                         transform.localRotation = Quaternion.Slerp(current.rotation, target.rotation, currentInterpolation);
                 }
                 else
                 {
-                    if (settings.useGlobalRotation)
+                    if (settings.rotation.useGlobal)
                         transform.rotation = target.rotation;
                     else
                         transform.localRotation = target.rotation;
                 }
             }
 
-            if (settings.syncScale)
+            if (settings.scale.sync)
             {
-                if (settings.interpolateScale)
+                if (settings.scale.interpolate)
                 {
                     transform.localScale = Vector3.Lerp(current.scale, target.scale, currentInterpolation);
                 }
@@ -154,8 +182,8 @@ namespace VirtualVoid.Networking.Steam
 
         private bool HasMoved()
         {
-            Vector3 currentPos = settings.useGlobalPosition ? transform.position : transform.localPosition;
-            bool changed = Vector3.Distance(lastPosition, currentPos) > settings.positionSyncSensitivity;
+            Vector3 currentPos = settings.position.useGlobal ? transform.position : transform.localPosition;
+            bool changed = Vector3.Distance(lastPosition, currentPos) > settings.position.sensitivity;
             if (changed)
                 lastPosition = currentPos;
 
@@ -164,8 +192,8 @@ namespace VirtualVoid.Networking.Steam
 
         private bool HasRotated()
         {
-            Quaternion currentRot = settings.useGlobalRotation ? transform.rotation : transform.localRotation;
-            bool changed = Quaternion.Angle(lastRotation, currentRot) > settings.rotationSyncSensitivity;
+            Quaternion currentRot = settings.rotation.useGlobal ? transform.rotation : transform.localRotation;
+            bool changed = Quaternion.Angle(lastRotation, currentRot) > settings.rotation.sensitivity;
             if (changed)
                 lastRotation = currentRot;
 
@@ -175,7 +203,7 @@ namespace VirtualVoid.Networking.Steam
         private bool HasScaled()
         {
             Vector3 currentScale = transform.localScale;
-            bool changed = Vector3.Distance(lastScale, currentScale) > settings.scaleSyncSensitivity;
+            bool changed = Vector3.Distance(lastScale, currentScale) > settings.scale.sensitivity;
             if (changed)
                 lastScale = currentScale;
 
@@ -184,7 +212,7 @@ namespace VirtualVoid.Networking.Steam
 
         private bool ShouldSnap()
         {
-            float currentTime = current == null ? Time.time - (syncWithFixedUpdate ? Time.fixedDeltaTime : syncTime) : current.time;
+            float currentTime = current == null ? Time.time - syncDelay : current.time;
             float targetTime = target == null ? Time.time : target.time;
             float difference = targetTime - currentTime;
             float timeSinceGoalReceived = Time.time - targetTime;
@@ -201,8 +229,8 @@ namespace VirtualVoid.Networking.Steam
         internal void OnNewTransformReceived(Vector3 position, Quaternion rotation, Vector3 scale)
         {
             if (ShouldSnap()) current.Update(target.position, target.rotation, target.scale, target.time);
-            else current.Update(settings.useGlobalPosition ? transform.position : transform.localPosition,
-                settings.useGlobalRotation ? transform.rotation : transform.localRotation, transform.localScale, Time.time - syncDelay);
+            else current.Update(settings.position.useGlobal ? transform.position : transform.localPosition,
+                settings.rotation.useGlobal ? transform.rotation : transform.localRotation, transform.localScale, Time.time - syncDelay);
 
             target.Update(position, rotation, scale, Time.time);
         }
@@ -274,5 +302,36 @@ namespace VirtualVoid.Networking.Steam
 
             SetParentNet(networkID);
         }
+
+        [ContextMenu("Quantization test")]
+        public void QuantizationTest()
+        {
+            if (settings == null || !settings.position.quantize) return;
+
+            Vector3 pos = transform.position;
+            Vector3 min = settings.position.quantizationRangeMin;
+            Vector3 max = settings.position.quantizationRangeMax;
+            ushort x = Compression.Vector.Quantize_16bit(pos.x, min.x, max.x, 16);
+            ushort y = Compression.Vector.Quantize_16bit(pos.y, min.y, max.y, 16);
+            ushort z = Compression.Vector.Quantize_16bit(pos.z, min.z, max.z, 16);
+
+            float d_x = Compression.Vector.Dequantize(x, min.x, max.x, 16);
+            float d_y = Compression.Vector.Dequantize(y, min.y, max.y, 16);
+            float d_z = Compression.Vector.Dequantize(z, min.z, max.z, 16);
+
+            Debug.Log($"Current pos - {pos}");
+            Debug.Log($"Quantized pos - ({x}, {y}, {z})");
+            Debug.Log($"Dequantized pos - ({d_x}, {d_y}, {d_z})");
+            //Debug.Log
+
+        }
+    }
+
+    public enum SyncUpdateLoop
+    {
+        Update,
+        LateUpdate,
+        FixedUpdate
+        // Not following usual all-caps enum scheme because I like Pascal case in the editor :P
     }
 }

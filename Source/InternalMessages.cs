@@ -4,7 +4,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace VirtualVoid.Networking.Steam.LLAPI
+namespace VirtualVoid.Networking.Steam
 {
     internal class InternalMessages
     {
@@ -14,7 +14,7 @@ namespace VirtualVoid.Networking.Steam.LLAPI
             InternalServerMessages.Initialize();
         }
 
-        internal static void AddNetworkBehaviorAndIDIntoMessage(ushort messageID, NetworkBehavior networkBehavior, Message message)
+        internal static void AddNetworkBehaviorAndIDIntoMessage(ushort messageID, NetworkBehaviour networkBehavior, Message message)
         {
             //System.Text.StringBuilder builder = new System.Text.StringBuilder("Before copy: ");
             //for (int i = 0; i < 20; i++)
@@ -55,19 +55,28 @@ namespace VirtualVoid.Networking.Steam.LLAPI
 
             //Array.Copy(SteamManager.tempMessageByteBuffer, 0, message.Bytes, 0, totalLength);
         }
+
+        internal static void AddIDIntoMessage(ushort messageID, Message message)
+        {
+            int totalLength = message.WrittenLength + 2; // 2 bytes for id
+            Array.Copy(message.Bytes, 0, message.Bytes, 2, message.WrittenLength);
+            message.writePos = 0;
+            message.Add(messageID);
+            message.writePos = (ushort)totalLength;
+        }
     }
 
     internal class InternalClientMessages
     {
         internal static void Initialize()
         {
-            SteamManager.RegisterInternalMessageHandler_FromServer((ushort)InternalServerMessageIDs.PONG, OnServerPong);
-            SteamManager.RegisterInternalMessageHandler_FromServer((ushort)InternalServerMessageIDs.DISCONNECT, OnClientDisconnected);
-            SteamManager.RegisterInternalMessageHandler_FromServer((ushort)InternalServerMessageIDs.SCENE_CHANGE, OnChangeScene);
-            SteamManager.RegisterInternalMessageHandler_FromServer((ushort)InternalServerMessageIDs.SPAWN_NETWORK_ID, OnNetworkIDSpawn);
-            SteamManager.RegisterInternalMessageHandler_FromServer((ushort)InternalServerMessageIDs.DESTROY_NETWORK_ID, OnNetworkIDDestroy);
-            SteamManager.RegisterInternalMessageHandler_FromServer((ushort)InternalServerMessageIDs.NETWORK_TRANSFORM, OnNetworkTransform);
-            SteamManager.RegisterInternalMessageHandler_FromServer((ushort)InternalServerMessageIDs.NETWORK_ANIMATOR, OnNetworkAnimator);
+            SteamManager.RegisterInternalMessageHandler_FromServer(InternalServerMessageIDs.PONG, OnServerPong);
+            SteamManager.RegisterInternalMessageHandler_FromServer(InternalServerMessageIDs.DISCONNECT, OnClientDisconnected);
+            SteamManager.RegisterInternalMessageHandler_FromServer(InternalServerMessageIDs.SCENE_CHANGE, OnChangeScene);
+            SteamManager.RegisterInternalMessageHandler_FromServer(InternalServerMessageIDs.SPAWN_NETWORK_ID, OnNetworkIDSpawn);
+            SteamManager.RegisterInternalMessageHandler_FromServer(InternalServerMessageIDs.DESTROY_NETWORK_ID, OnNetworkIDDestroy);
+            SteamManager.RegisterInternalMessageHandler_FromServer(InternalServerMessageIDs.NETWORK_TRANSFORM, OnNetworkTransform);
+            SteamManager.RegisterInternalMessageHandler_FromServer(InternalServerMessageIDs.NETWORK_ANIMATOR, OnNetworkAnimator);
         }
 
         #region Send
@@ -78,7 +87,8 @@ namespace VirtualVoid.Networking.Steam.LLAPI
 
         internal static void SendDisconnect()
         {
-            SteamManager.SendMessageToServer(Message.CreateInternal(P2PSend.Reliable, (ushort)InternalClientMessageIDs.DISCONNECTED));
+            if (SteamManager.ConnectedToServer)
+                SteamManager.SendMessageToServer(Message.CreateInternal(P2PSend.Reliable, (ushort)InternalClientMessageIDs.DISCONNECTED));
         }
 
         internal static void SendSceneLoaded()
@@ -86,9 +96,16 @@ namespace VirtualVoid.Networking.Steam.LLAPI
             SteamManager.SendMessageToServer(Message.CreateInternal(P2PSend.Reliable, (ushort)InternalClientMessageIDs.SCENE_LOADED));
         }
 
-        internal static void SendNetworkBehaviorCommand(NetworkBehavior networkBehavior, Message message)
+        internal static void SendNetworkBehaviorCommand(NetworkBehaviour networkBehavior, Message message)
         {
             InternalMessages.AddNetworkBehaviorAndIDIntoMessage((ushort)InternalClientMessageIDs.NETWORK_BEHAVIOR_COMMAND, networkBehavior, message);
+
+            SteamManager.SendMessageToServer(message);
+        }
+
+        internal static void SendClientCommand(Client client, Message message)
+        {
+            InternalMessages.AddIDIntoMessage((ushort)InternalClientMessageIDs.CLIENT_COMMAND, message);
 
             SteamManager.SendMessageToServer(message);
         }
@@ -149,13 +166,32 @@ namespace VirtualVoid.Networking.Steam.LLAPI
             {
                 if (!SteamManager.registeredPrefabs.TryGetValue(spawnMessage.assetID, out GameObject obj))
                 {
-                    Debug.LogWarning($"Received netID for a prefab with assetID {spawnMessage.netID}, but SteamManager.registeredPrefabs does not contain a prefab with that assetID! Did you register that prefab?");
+                    Debug.LogWarning($"Received netID for a prefab with assetID {spawnMessage.assetID}, but SteamManager.registeredPrefabs does not contain a prefab with that assetID! Did you register that prefab?");
                     return;
                 }
 
                 NetworkID spawnedObjID = UnityEngine.Object.Instantiate(obj).GetComponent<NetworkID>();
                 spawnedObjID.netID = spawnMessage.netID;
                 NetworkID.networkIDs[spawnMessage.netID] = spawnedObjID;
+            }
+
+            NetworkID networkID = NetworkID.networkIDs[spawnMessage.netID];
+
+            if (!networkID.UseSpawnData) return;
+
+            foreach (NetworkBehaviour networkBehaviour in networkID.netBehaviors)
+            {
+                if (networkBehaviour == null) continue;
+
+                try
+                {
+                    networkBehaviour.GetSpawnData(message);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"Caught error trying to get spawn data from {networkBehaviour.GetType().Name} ({networkBehaviour.gameObject.name}): " + ex);
+                    break;
+                }
             }
 
             //if (spawnMessage.includeTransform)
@@ -226,12 +262,70 @@ namespace VirtualVoid.Networking.Steam.LLAPI
 
             bool isTargetNull = networkTransform.target == null;
 
-            Vector3 newPos = flags.HasFlag(NetworkTransform.TransformUpdateFlags.POSITION) ? message.GetVector3() : isTargetNull ? networkTransform.settings.useGlobalPosition ?
-                networkTransform.transform.position : networkTransform.transform.localPosition : networkTransform.target.position;
-            Quaternion newRot = flags.HasFlag(NetworkTransform.TransformUpdateFlags.ROTATION) ? message.GetQuaternion() : isTargetNull ? networkTransform.settings.useGlobalRotation ?
-                networkTransform.transform.rotation : networkTransform.transform.localRotation : networkTransform.target.rotation;
-            Vector3 newScale = flags.HasFlag(NetworkTransform.TransformUpdateFlags.SCALE) ? message.GetVector3() :
-                isTargetNull ? networkTransform.transform.localScale : networkTransform.target.scale;
+            NetworkTransformSettings settings = networkTransform.settings;
+
+            Vector3 newPos;
+            Quaternion newRot;
+            Vector3 newScale;
+
+            if (flags.HasFlag(NetworkTransform.TransformUpdateFlags.POSITION))
+            {
+                if (settings.position.quantize)
+                    newPos = Compression.GetVector3(message, settings.position.quantizationPrecision, settings.position.quantizationRangeMin, settings.position.quantizationRangeMax);
+                else
+                    newPos = message.GetVector3();
+            }
+            else
+            {
+                if (isTargetNull)
+                {
+                    if (settings.position.useGlobal)
+                        newPos = networkTransform.transform.position;
+                    else
+                        newPos = networkTransform.transform.localPosition;
+                }
+                else
+                    newPos = networkTransform.target.position;
+            }
+
+            if (flags.HasFlag(NetworkTransform.TransformUpdateFlags.ROTATION))
+            {
+                newRot = message.GetQuaternion();
+            }
+            else
+            {
+                if (isTargetNull)
+                {
+                    if (settings.rotation.useGlobal)
+                        newRot = networkTransform.transform.rotation;
+                    else
+                        newRot = networkTransform.transform.localRotation;
+                }
+                else
+                    newRot = networkTransform.target.rotation;
+            }
+
+            if (flags.HasFlag(NetworkTransform.TransformUpdateFlags.SCALE))
+            {
+                if (settings.scale.quantize)
+                    newScale = Compression.GetVector3(message, settings.scale.quantizationPrecision, settings.scale.quantizationSizeMin, settings.scale.quantizationSizeMax);
+                else
+                    newScale = message.GetVector3();
+            }
+            else
+            {
+                if (isTargetNull)
+                    newScale = networkTransform.transform.localScale;
+                else
+                    newScale = networkTransform.target.scale;
+            }
+
+            //Vector3 newPos = flags.HasFlag(NetworkTransform.TransformUpdateFlags.POSITION) ? message.GetVector3() : isTargetNull ? networkTransform.settings.position.useGlobal ?
+            //    networkTransform.transform.position : networkTransform.transform.localPosition : networkTransform.target.position;
+            //Quaternion newRot = flags.HasFlag(NetworkTransform.TransformUpdateFlags.ROTATION) ? message.GetQuaternion() : isTargetNull ? networkTransform.settings.rotation.useGlobal ?
+            //    networkTransform.transform.rotation : networkTransform.transform.localRotation : networkTransform.target.rotation;
+            //Vector3 newScale = flags.HasFlag(NetworkTransform.TransformUpdateFlags.SCALE) ? message.GetVector3() :
+            //    isTargetNull ? networkTransform.transform.localScale : networkTransform.target.scale;
 
             networkTransform.OnNewTransformReceived(newPos, newRot, newScale);
         }
@@ -258,10 +352,11 @@ namespace VirtualVoid.Networking.Steam.LLAPI
     {
         internal static void Initialize()
         {
-            SteamManager.RegisterInternalMessageHandler_FromClient((ushort)InternalClientMessageIDs.PING, OnClientPing);
-            SteamManager.RegisterInternalMessageHandler_FromClient((ushort)InternalClientMessageIDs.DISCONNECTED, OnClientDisconnect);
-            SteamManager.RegisterInternalMessageHandler_FromClient((ushort)InternalClientMessageIDs.SCENE_LOADED, OnClientSceneLoaded);
-            SteamManager.RegisterInternalMessageHandler_FromClient((ushort)InternalClientMessageIDs.NETWORK_BEHAVIOR_COMMAND, OnNetworkBehaviorCommand);
+            SteamManager.RegisterInternalMessageHandler_FromClient(InternalClientMessageIDs.PING, OnClientPing);
+            SteamManager.RegisterInternalMessageHandler_FromClient(InternalClientMessageIDs.DISCONNECTED, OnClientDisconnect);
+            SteamManager.RegisterInternalMessageHandler_FromClient(InternalClientMessageIDs.SCENE_LOADED, OnClientSceneLoaded);
+            SteamManager.RegisterInternalMessageHandler_FromClient(InternalClientMessageIDs.NETWORK_BEHAVIOR_COMMAND, OnNetworkBehaviorCommand);
+            SteamManager.RegisterInternalMessageHandler_FromClient(InternalClientMessageIDs.CLIENT_COMMAND, OnClientCommand);
         }
 
         #region Send
@@ -282,44 +377,110 @@ namespace VirtualVoid.Networking.Steam.LLAPI
             // could send a byte but trying to account for lots of scenes + scenes dont change that often so the performance here is fine
         }
 
+        private static Message GenNetworkIDSpawnMessage(NetworkID networkID)
+        {
+            if (networkID == null) return null;
+
+            Message message = Message.CreateInternal(P2PSend.ReliableWithBuffering, (ushort)InternalServerMessageIDs.SPAWN_NETWORK_ID);
+
+            NetworkObjectIDMessage spawnMessage = new NetworkObjectIDMessage(networkID);//, !networkID.gameObject.isStatic);
+
+            message.Add(spawnMessage);
+            //message.Add((byte)networkID.netBehaviors.Length);
+
+            if (!networkID.UseSpawnData) return message;
+
+            foreach (NetworkBehaviour networkBehaviour in networkID.netBehaviors)
+            {
+                if (networkBehaviour == null) continue;
+
+                try
+                {
+                    //message.Add(networkBehaviour);
+                    networkBehaviour.AddSpawnData(message);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"Caught error trying to add spawn data from {networkBehaviour.gameObject.name}: " + ex);
+                    break;
+                }
+            }
+
+            return message;
+        }
+
         internal static void SendNetworkIDSpawn(NetworkID networkID)
         {
-            NetworkObjectIDMessage spawnMessage = new NetworkObjectIDMessage(networkID);//, !networkID.gameObject.isStatic);
-            SteamManager.SendMessageToAllClients(Message.CreateInternal(P2PSend.Reliable, (ushort)InternalServerMessageIDs.SPAWN_NETWORK_ID).Add(spawnMessage));
+            Message message = GenNetworkIDSpawnMessage(networkID);
+
+            if (message == null) return;
+
+            SteamManager.SendMessageToAllClients(Message.CreateInternal(P2PSend.ReliableWithBuffering, (ushort)InternalServerMessageIDs.SPAWN_NETWORK_ID));
         }
 
         internal static void SendNetworkIDSpawn(NetworkID networkID, SteamId onlyTo)
         {
-            NetworkObjectIDMessage spawnMessage = new NetworkObjectIDMessage(networkID);//, !networkID.gameObject.isStatic);
-            SteamManager.SendMessageToClient(onlyTo, Message.CreateInternal(P2PSend.Reliable, (ushort)InternalServerMessageIDs.SPAWN_NETWORK_ID).Add(spawnMessage));
+            Message message = GenNetworkIDSpawnMessage(networkID);
+
+            if (message == null) return;
+
+            SteamManager.SendMessageToClient(onlyTo, Message.CreateInternal(P2PSend.ReliableWithBuffering, (ushort)InternalServerMessageIDs.SPAWN_NETWORK_ID));
         }
 
         internal static void SendNetworkIDDestroy(NetworkID networkID)
         {
-            SteamManager.SendMessageToAllClients(Message.CreateInternal(P2PSend.Reliable, (ushort)InternalServerMessageIDs.DESTROY_NETWORK_ID).Add(networkID.netID));
+            SteamManager.SendMessageToAllClients(Message.CreateInternal(P2PSend.ReliableWithBuffering, (ushort)InternalServerMessageIDs.DESTROY_NETWORK_ID).Add(networkID.netID));
         }
 
         internal static void SendNetworkTransform(NetworkTransform networkTransform, NetworkTransform.TransformUpdateFlags flags)
         {
-            Message message = Message.CreateInternal(P2PSend.Reliable, (ushort)InternalServerMessageIDs.NETWORK_TRANSFORM);
+            if (networkTransform == null || networkTransform.settings == null) return;
+
+            Message message = Message.CreateInternal(P2PSend.ReliableWithBuffering, (ushort)InternalServerMessageIDs.NETWORK_TRANSFORM);
+            NetworkTransformSettings settings = networkTransform.settings;
 
             message.Add((byte)flags);
             message.Add(networkTransform);
-            if (flags.HasFlag(NetworkTransform.TransformUpdateFlags.POSITION)) message.Add(networkTransform.lastPosition);
-            if (flags.HasFlag(NetworkTransform.TransformUpdateFlags.ROTATION)) message.Add(networkTransform.lastRotation);
-            if (flags.HasFlag(NetworkTransform.TransformUpdateFlags.SCALE)) message.Add(networkTransform.lastScale);
+            if (flags.HasFlag(NetworkTransform.TransformUpdateFlags.POSITION))
+            {
+                if (settings.position.quantize)
+                {
+                    Compression.AddVector3(message, networkTransform.lastPosition,
+                        settings.position.quantizationPrecision, settings.position.quantizationRangeMin, settings.position.quantizationRangeMax);
+                }
+                else
+                {
+                    message.Add(networkTransform.lastPosition);
+                }
+            }
+
+            if (flags.HasFlag(NetworkTransform.TransformUpdateFlags.ROTATION)) 
+                message.Add(networkTransform.lastRotation);
+
+            if (flags.HasFlag(NetworkTransform.TransformUpdateFlags.SCALE))
+            {
+                if (settings.scale.quantize)
+                {
+                    Compression.AddVector3(message, networkTransform.lastScale,
+                        settings.scale.quantizationPrecision, settings.scale.quantizationSizeMin, settings.scale.quantizationSizeMax);
+                }
+                else
+                {
+                    message.Add(networkTransform.lastScale);
+                }
+            }
 
             SteamManager.SendMessageToAllClients(message);
         }
 
-        internal static void SendNetworkBehaviorRPC(NetworkBehavior networkBehavior, Message message)
+        internal static void SendNetworkBehaviorRPC(NetworkBehaviour networkBehavior, Message message)
         {
             InternalMessages.AddNetworkBehaviorAndIDIntoMessage((ushort)InternalServerMessageIDs.NETWORK_BEHAVIOR_RPC, networkBehavior, message);
 
             SteamManager.SendMessageToAllClients(message);
         }
 
-        internal static void SendNetworkBehaviorRPC(NetworkBehavior networkBehavior, Message message, SteamId onlyTo)
+        internal static void SendNetworkBehaviorRPC(NetworkBehaviour networkBehavior, Message message, SteamId onlyTo)
         {
             InternalMessages.AddNetworkBehaviorAndIDIntoMessage((ushort)InternalServerMessageIDs.NETWORK_BEHAVIOR_RPC, networkBehavior, message);
 
@@ -345,7 +506,7 @@ namespace VirtualVoid.Networking.Steam.LLAPI
 
         private static void OnNetworkBehaviorCommand(SteamId clientSteamID, Message message)
         {
-            NetworkBehavior networkBehavior = message.GetNetworkBehavior<NetworkBehavior>();
+            NetworkBehaviour networkBehavior = message.GetNetworkBehavior<NetworkBehaviour>();
             if (networkBehavior == null)
             {
                 Debug.LogWarning("Tried to read NetworkBehavior from command, but could not!");
@@ -355,6 +516,19 @@ namespace VirtualVoid.Networking.Steam.LLAPI
             ushort messageID = message.GetUShort();
 
             networkBehavior.OnCommandReceived(clientSteamID, message, messageID);
+        }
+
+        private static void OnClientCommand(SteamId clientSteamID, Message message)
+        {
+            if (!SteamManager.clients.TryGetValue(clientSteamID, out Client client))
+            {
+                Debug.LogWarning($"Received message from {new Friend(clientSteamID).Name}, but they are not in the clients dictionary!");
+                return;
+            }
+
+            ushort messageID = message.GetUShort();
+
+            client.OnCommandReceived(message, messageID);
         }
         #endregion
     }

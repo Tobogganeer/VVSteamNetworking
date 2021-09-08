@@ -4,7 +4,7 @@ using UnityEngine;
 using System.Runtime.InteropServices;
 using System;
 
-namespace VirtualVoid.Networking.Steam.LLAPI
+namespace VirtualVoid.Networking.Steam
 {
     internal static class Serialization
     {

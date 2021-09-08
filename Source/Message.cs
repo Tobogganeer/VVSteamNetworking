@@ -5,7 +5,6 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using UnityEngine;
-using VirtualVoid.Networking.Steam.LLAPI;
 using Steamworks;
 using Steamworks.Data;
 
@@ -39,7 +38,8 @@ namespace VirtualVoid.Networking.Steam
         private const ushort LOWER_INTERNAL_ID = 2560;
         private const ushort UPPER_INTERNAL_ID = 2585;
 
-        private const ushort MAX_INTERNAL_MESSAGE_SIZE = 512; // Increased from 256 because NetworkAnimator could send a lot potentially
+        private const ushort MAX_INTERNAL_MESSAGE_SIZE = 2048; // Increased from 256 because NetworkAnimator could send a lot potentially
+        // Increased from 512 because steam voice chat
 
         /// <summary>The position in the byte array that the next bytes will be written to.</summary>
         internal ushort writePos = 0;
@@ -230,6 +230,8 @@ namespace VirtualVoid.Networking.Steam
         /// <returns>The Message instance that the <see langword="byte"/> array was added to.</returns>
         public Message Add(byte[] value)
         {
+            //Debug.Log(value.Length);
+
             if (UnwrittenLength < value.Length)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'byte[]'!");
 
@@ -1163,23 +1165,25 @@ namespace VirtualVoid.Networking.Steam
         #region Quaternion
         public Message Add(Quaternion value)
         {
-            if (UnwrittenLength < Util.QUATERNION_LENGTH)
+            if (UnwrittenLength < Util.INT_LENGTH)//Util.QUATERNION_LENGTH)
                 throw new Exception($"Message has insufficient remaining capacity ({UnwrittenLength}) to add type 'Quaternion'!");
 
-            Add(value.eulerAngles); // Should switch to smallest three in the future, but idc rn
+            //Add(value.eulerAngles); // Should switch to smallest three in the future, but idc rn
+            Add(Compression.Rotation.Compress(value)); // ^^^ Done!
 
             return this;
         }
 
         public Quaternion GetQuaternion()
         {
-            if (UnreadLength < Util.QUATERNION_LENGTH)
+            if (UnreadLength < Util.INT_LENGTH)//Util.QUATERNION_LENGTH)
             {
                 Debug.LogError($"Message contains insufficient unread bytes ({UnreadLength}) to read type 'Quaternion', returning Quaternion.identity!");
                 return Quaternion.identity;
             }
 
-            return Quaternion.Euler(GetVector3()); // Should switch to smallest three in the future, but idc rn
+            //return Quaternion.Euler(GetVector3()); // Should switch to smallest three in the future, but idc rn
+            return Compression.Rotation.Decompress(GetUInt()); // ^^^ Done!
         }
         #endregion
 
@@ -1259,7 +1263,7 @@ namespace VirtualVoid.Networking.Steam
         #endregion
 
         #region NetworkBehavior
-        public Message Add(NetworkBehavior networkBehavior)
+        public Message Add(NetworkBehaviour networkBehavior)
         {
             if (networkBehavior == null)
             {
@@ -1273,7 +1277,7 @@ namespace VirtualVoid.Networking.Steam
             return this;
         }
 
-        public T GetNetworkBehavior<T>() where T : NetworkBehavior
+        public T GetNetworkBehavior<T>() where T : NetworkBehaviour
         {
             NetworkID networkID = GetNetworkID();
             byte compIndex = GetByte();
