@@ -1,8 +1,9 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using Steamworks.Data;
 
-namespace VirtualVoid.Networking.Steam
+namespace VirtualVoid.Net
 {
     public class NetworkAnimator : NetworkBehaviour
     {
@@ -79,7 +80,7 @@ namespace VirtualVoid.Networking.Steam
 
             if (numCommands == 0) return;
 
-            Message message = Message.CreateInternal(Steamworks.P2PSend.ReliableWithBuffering, (ushort)InternalServerMessageIDs.NETWORK_ANIMATOR);
+            Message message = Message.CreateInternal(SendType.Reliable, (ushort)InternalServerMessageIDs.NETWORK_ANIMATOR);
             message.Add(this);
             message.Add(numCommands);
 

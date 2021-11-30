@@ -4,12 +4,11 @@ using UnityEngine;
 using Steamworks;
 using System.IO;
 
-namespace VirtualVoid.Networking.Steam
+namespace VirtualVoid.Net
 {
     public class VoiceOutput : NetworkBehaviour
     {
-        [SerializeField]
-        private AudioSource source;
+        public AudioSource source;
 
         private MemoryStream output;
         private MemoryStream input;

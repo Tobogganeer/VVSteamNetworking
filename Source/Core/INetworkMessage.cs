@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace VirtualVoid.Networking.Steam
+namespace VirtualVoid.Net
 {
     public interface INetworkMessage
     {

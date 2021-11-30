@@ -2,7 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace VirtualVoid.Networking.Steam
+namespace VirtualVoid.Net
 {
     [CreateAssetMenu(menuName = "VVSteamNetworking/Network Transform Settings")]
     public class NetworkTransformSettings : ScriptableObject

@@ -2,8 +2,9 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Steamworks;
+using Steamworks.Data;
 
-namespace VirtualVoid.Networking.Steam
+namespace VirtualVoid.Net
 {
     public class NetworkTransform : NetworkBehaviour
     {
@@ -18,6 +19,9 @@ namespace VirtualVoid.Networking.Steam
         private int lastSyncsPerSecond = 0;
         private float syncTime = 0.1f;
         public NetworkTransformSettings settings;
+
+        [Tooltip("Can clients change the transform's values?")]
+        public bool clientAuthority;
 
         internal Vector3 lastPosition = Vector3.zero;
         internal Quaternion lastRotation = Quaternion.identity;
@@ -98,7 +102,7 @@ namespace VirtualVoid.Networking.Steam
 
         private void CheckTransform()
         {
-            if (!SteamManager.IsServer) return;
+            if (!SteamManager.IsServer && !clientAuthority) return;
 
             TransformUpdateFlags flags = TransformUpdateFlags.NONE;
 
@@ -115,7 +119,7 @@ namespace VirtualVoid.Networking.Steam
 
             if (flags == TransformUpdateFlags.NONE) return;
 
-            InternalServerMessages.SendNetworkTransform(this, flags);
+            InternalServerSend.SendNetworkTransform(this, flags);
             //Message message = Message.CreateInternal(P2PSend.Reliable, (ushort)InternalServerMessageIDs.NETWORK_TRANSFORM);
             //
             //message.Add((byte)flags);
@@ -124,6 +128,22 @@ namespace VirtualVoid.Networking.Steam
             //if (flags.HasFlag(TransformUpdateFlags.SCALE)) message.Add(lastScale);
             //
             //SteamManager.SendMessageToAllClients(message);
+        }
+
+        internal TransformUpdateFlags GetFlags()
+        {
+            TransformUpdateFlags flags = TransformUpdateFlags.NONE;
+
+            if (settings.position.sync && HasMoved())
+                flags |= TransformUpdateFlags.POSITION;
+
+            if (settings.rotation.sync && HasRotated())
+                flags |= TransformUpdateFlags.ROTATION;
+
+            if (settings.scale.sync && HasScaled())
+                flags |= TransformUpdateFlags.SCALE;
+
+            return flags;
         }
 
         private void UpdateTransform()
@@ -273,13 +293,13 @@ namespace VirtualVoid.Networking.Steam
             if (networkID == null)
             {
                 transform.SetParent(null);
-                SteamManager.SendMessageToAllClients(Message.CreateInternal(P2PSend.Reliable, (ushort)InternalServerMessageIDs.NETWORK_TRANSFORM)
+                SteamManager.SendMessageToAllClients(Message.CreateInternal(SendType.Reliable, (ushort)InternalServerMessageIDs.NETWORK_TRANSFORM)
                     .Add((byte)TransformUpdateFlags.PARENT).Add(this.networkID).Add(0u));
             }
             else
             {
                 transform.SetParent(networkID.transform);
-                SteamManager.SendMessageToAllClients(Message.CreateInternal(P2PSend.Reliable, (ushort)InternalServerMessageIDs.NETWORK_TRANSFORM)
+                SteamManager.SendMessageToAllClients(Message.CreateInternal(SendType.Reliable, (ushort)InternalServerMessageIDs.NETWORK_TRANSFORM)
                     .Add((byte)TransformUpdateFlags.PARENT).Add(this.networkID).Add(networkID));
             }
         }

@@ -2,10 +2,9 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using System;
-using BitPrecision = VirtualVoid.Networking.Steam.NetworkTransformSettings.BitPrecision;
-using SickDev.BitPacking;
+using BitPrecision = VirtualVoid.Net.NetworkTransformSettings.BitPrecision;
 
-namespace VirtualVoid.Networking.Steam
+namespace VirtualVoid.Net
 {
     public static class Compression
     {

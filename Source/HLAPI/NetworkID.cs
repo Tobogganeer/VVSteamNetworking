@@ -7,7 +7,7 @@ using UnityEditor;
 using UnityEditor.Experimental.SceneManagement;
 #endif
 
-namespace VirtualVoid.Networking.Steam
+namespace VirtualVoid.Net
 {
     // Most of this code is ripped straight from Mirror. https://github.com/vis2k/Mirror
     // The people working on it are smarter than I am and they have figured out all this complex stuff so :/
@@ -123,31 +123,36 @@ namespace VirtualVoid.Networking.Steam
             }
             hasSpawned = true;
 
-            SteamManager.OnServerStart += SteamManager_OnServerStart;
+            SteamManager.OnAllClientsSceneLoaded += SteamManager_OnAllClientsSceneLoaded;
         }
 
-        private void SteamManager_OnServerStart()
+        private void SteamManager_OnAllClientsSceneLoaded()
         {
             if (!IsServer) return;
 
             if (netID == 0)
+            {
                 netID = NextNetID();
 
-            networkIDs[netID] = this;
+                networkIDs[netID] = this;
 
-            SteamManager.SpawnObject(this);
+                SteamManager.SpawnObject(this);
+            }
         }
 
         private void Start()
         {
-            if (!IsServer) return;
-        
+            if (!IsServer || sceneID != 0) return;
+            // Only spawn if runtime ID, ie sceneID is 0
+
             if (netID == 0)
+            {
                 netID = NextNetID();
-        
-            networkIDs[netID] = this;
-        
-            SteamManager.SpawnObject(this);
+
+                networkIDs[netID] = this;
+
+                SteamManager.SpawnObject(this);
+            }
         }
 
         private void OnValidate()
@@ -236,7 +241,7 @@ namespace VirtualVoid.Networking.Steam
 
             if (IsServer && !destroyed)
             {
-                SteamManager.OnServerStart -= SteamManager_OnServerStart;
+                SteamManager.OnAllClientsSceneLoaded -= SteamManager_OnAllClientsSceneLoaded;
                 SteamManager.DestroyObject(this);
                 destroyed = true;
             }

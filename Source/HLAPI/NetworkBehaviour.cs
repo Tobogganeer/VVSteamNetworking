@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Steamworks;
 
-namespace VirtualVoid.Networking.Steam
+namespace VirtualVoid.Net
 {
     [RequireComponent(typeof(NetworkID))]
     public class NetworkBehaviour : MonoBehaviour
@@ -47,23 +47,23 @@ namespace VirtualVoid.Networking.Steam
             return dictType;
         }
 
-        /// <summary>
-        /// Sends a message to the server version of this object.
-        /// </summary>
-        /// <param name="message">The message to send.</param>
-        public virtual void SendCommand(Message message)
-        {
-            InternalClientMessages.SendNetworkBehaviorCommand(this, message);
-        }
-
-        /// <summary>
-        /// Called on the server when a message is received the client with ID <paramref name="from"/>.
-        /// </summary>
-        /// <param name="message">The message received.</param>
-        protected internal virtual void OnCommandReceived(SteamId from, Message message, ushort messageID)
-        {
-
-        }
+       /// <summary>
+       /// Sends a message to the server version of this object.
+       /// </summary>
+       /// <param name="message">The message to send.</param>
+       public virtual void SendCommand(Message message)
+       {
+           InternalClientSend.SendNetworkBehaviorCommand(this, message);
+       }
+       
+       /// <summary>
+       /// Called on the server when a message is received the client with ID <paramref name="from"/>.
+       /// </summary>
+       /// <param name="message">The message received.</param>
+       protected internal virtual void OnCommandReceived(SteamId from, Message message, ushort messageID)
+       {
+       
+       }
 
         /// <summary>
         /// Sends a message to the client version of this object.
@@ -72,10 +72,10 @@ namespace VirtualVoid.Networking.Steam
         public virtual void SendRPC(Message message)
         {
             if (!IsServer) return;
-
-            InternalServerMessages.SendNetworkBehaviorRPC(this, message);
+        
+            InternalServerSend.SendNetworkBehaviorRPC(this, message);
         }
-
+        
         /// <summary>
         /// Sends a message to the client version of this object, but only for the user with ID <paramref name="onlyTo"/>.
         /// </summary>
@@ -84,7 +84,7 @@ namespace VirtualVoid.Networking.Steam
         {
             if (!IsServer) return;
 
-            InternalServerMessages.SendNetworkBehaviorRPC(this, message, onlyTo);
+            InternalServerSend.SendNetworkBehaviorRPC(this, message, onlyTo);
         }
 
         /// <summary>

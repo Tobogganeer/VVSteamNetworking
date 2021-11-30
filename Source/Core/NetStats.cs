@@ -5,7 +5,7 @@ using System.Linq;
 using UnityEngine.UI;
 using System;
 
-namespace VirtualVoid.Networking.Steam
+namespace VirtualVoid.Net
 {
     public class NetStats : MonoBehaviour
     {
@@ -60,7 +60,7 @@ namespace VirtualVoid.Networking.Steam
             pingTimer.Start();
             if (!SteamManager.ConnectedToServer) return;
 
-            InternalClientMessages.SendPing();
+            InternalClientSend.SendPing();
 
             UpdateUI();
             ClearSettings();

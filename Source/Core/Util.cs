@@ -2,7 +2,7 @@
 using System;
 using UnityEngine;
 
-namespace VirtualVoid.Networking.Steam
+namespace VirtualVoid.Net
 {
     internal static class Util
     {
@@ -15,7 +15,7 @@ namespace VirtualVoid.Networking.Steam
         public const byte DOUBLE_LENGTH = sizeof(double);
         public const byte VECTOR2_LENGTH = FLOAT_LENGTH * 2;
         public const byte VECTOR3_LENGTH = FLOAT_LENGTH * 3;
-        public const byte QUATERNION_LENGTH = FLOAT_LENGTH * 4;
+        //public const byte QUATERNION_LENGTH = FLOAT_LENGTH * 4;
         public const byte GUID_LENGTH = 16;
 
 
@@ -89,5 +89,10 @@ namespace VirtualVoid.Networking.Steam
             }
             return true;
         }
+
+        internal static ushort ID(this InternalClientMessageIDs id) => (ushort)id;
+        internal static ushort ID(this InternalServerMessageIDs id) => (ushort)id;
+
+        internal static string SteamName(this Steamworks.SteamId id) => new Steamworks.Friend(id).Name;
     }
 }
